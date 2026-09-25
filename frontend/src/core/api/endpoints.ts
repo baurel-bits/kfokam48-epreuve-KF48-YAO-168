@@ -16,6 +16,8 @@ export const ENDPOINTS = {
   /** EF2 — l'étudiant marque sa présence avec le code dicté par le formateur. */
   PRESENCES: {
     MARQUER: "/api/presences",
+    /** EF10 — le formateur ajoute une présence (source FORMATEUR, RG12). */
+    MARQUER_MANUELLE: "/api/presences/manuelles",
   },
 
   /** EF3 — l'étudiant dépose le lien de son exercice. */

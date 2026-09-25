@@ -105,7 +105,16 @@ export interface MarquagePresenceRequete {
   etudiantId: number;
 }
 
-/** Réponse 201 de POST /api/presences (EF2). */
+/**
+ * Corps de POST /api/presences/manuelles (EF10) — noms de champs imposés par le
+ * contrat. La `source` n'y figure pas : elle est décidée par l'opération appelée.
+ */
+export interface AjoutPresenceManuelleRequete {
+  sessionId: number;
+  etudiantId: number;
+}
+
+/** Réponse 201 de POST /api/presences (EF2) et de /api/presences/manuelles (EF10). */
 export interface PresenceReponse {
   id: number;
   sessionId: number;

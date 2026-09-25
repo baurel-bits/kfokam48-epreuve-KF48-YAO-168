@@ -150,6 +150,115 @@ class PresenceControllerTest {
                 .andExpect(jsonPath("$.message").isNotEmpty());
     }
 
+    // ---------- EF10 : le formateur ajoute une présence manuellement ----------
+
+    @Test
+    @DisplayName("EF10 : POST /api/presences/manuelles répond 201 avec source = FORMATEUR")
+    void ajout_manuel_repond_201() throws Exception {
+        long sessionId = idDeLaSession(ouvrirSession("Cours EF10 nominal"));
+
+        mockMvc.perform(post("/api/presences/manuelles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("sessionId", sessionId, "etudiantId", 1L))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").isNumber())
+                .andExpect(jsonPath("$.sessionId").value((int) sessionId))
+                .andExpect(jsonPath("$.etudiantId").value(1))
+                .andExpect(jsonPath("$.source").value("FORMATEUR"));
+
+        Integer enregistrees = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM presence WHERE session_id = ? AND etudiant_id = ? AND source = 'FORMATEUR'",
+                Integer.class, sessionId, 1L);
+        assertThat(enregistrees).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("EF10 : l'ajout manuel fonctionne avec un code de présence expiré (aucun code fourni)")
+    void ajout_manuel_sans_code_valide() throws Exception {
+        String code = ouvrirSession("Cours EF10 expiré");
+        expirerLaSession(code);
+        long sessionId = idDeLaSession(code);
+
+        mockMvc.perform(post("/api/presences/manuelles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("sessionId", sessionId, "etudiantId", 3L))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.source").value("FORMATEUR"));
+    }
+
+    @Test
+    @DisplayName("EF10/RG14 : l'ajout manuel reste possible après clôture — RG14 ne gèle que dépôts et notation")
+    void ajout_manuel_apres_cloture() throws Exception {
+        long sessionId = idDeLaSession(ouvrirSession("Cours EF10 après clôture"));
+
+        mockMvc.perform(post("/api/sessions/{id}/cloture", sessionId)).andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/presences/manuelles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("sessionId", sessionId, "etudiantId", 4L))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.source").value("FORMATEUR"));
+    }
+
+    @Test
+    @DisplayName("EF10 : un doublon répond 409, même si la première présence vient de l'étudiant")
+    void ajout_manuel_doublon_repond_409() throws Exception {
+        String code = ouvrirSession("Cours EF10 doublon");
+        long sessionId = idDeLaSession(code);
+
+        // L'étudiant marque lui-même sa présence (EF2), avec le code…
+        mockMvc.perform(post("/api/presences")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(corpsPresence(code, 2L)))
+                .andExpect(status().isCreated());
+
+        // …et le formateur ne peut pas la doubler : l'unicité ne dépend pas de la source.
+        mockMvc.perform(post("/api/presences/manuelles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("sessionId", sessionId, "etudiantId", 2L))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DEJA_PRESENT"))
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andExpect(jsonPath("$.trace").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("EF10 : session inconnue → 404 SESSION_INCONNUE, étudiant inconnu → 404 ETUDIANT_INCONNU")
+    void ajout_manuel_references_inconnues() throws Exception {
+        long sessionId = idDeLaSession(ouvrirSession("Cours EF10 références"));
+
+        mockMvc.perform(post("/api/presences/manuelles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("sessionId", 999_999L, "etudiantId", 1L))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SESSION_INCONNUE"))
+                .andExpect(jsonPath("$.trace").doesNotExist());
+
+        mockMvc.perform(post("/api/presences/manuelles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("sessionId", sessionId, "etudiantId", 999_999L))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ETUDIANT_INCONNU"))
+                .andExpect(jsonPath("$.trace").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("EF10 : un corps sans étudiant est refusé au format imposé (VALIDATION_INVALIDE)")
+    void ajout_manuel_corps_incomplet() throws Exception {
+        mockMvc.perform(post("/api/presences/manuelles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sessionId\": 1}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_INVALIDE"))
+                .andExpect(jsonPath("$.message").isNotEmpty());
+    }
+
     private String ouvrirSession(String titre) throws Exception {
         String corps = mockMvc.perform(post("/api/sessions")
                         .contentType(MediaType.APPLICATION_JSON)

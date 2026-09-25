@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.kfokam48.app.common.error.CodeErreur;
 import com.kfokam48.app.common.exception.ExceptionMetier;
+import com.kfokam48.app.features.presence.application.dto.AjoutPresenceManuelleRequete;
 import com.kfokam48.app.features.presence.application.dto.MarquagePresenceRequete;
 import com.kfokam48.app.features.presence.application.dto.PresenceReponse;
 import com.kfokam48.app.features.presence.domain.entity.Presence;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -252,6 +254,118 @@ class PresenceServiceTest {
                         .isEqualTo(CodeErreur.ETUDIANT_INCONNU));
 
         verify(sessionRepository, never()).findByCode(any());
+    }
+
+    // ---------- EF10 : ajout manuel d'une présence par le formateur (RG12) ----------
+
+    @Test
+    @DisplayName("EF10/RG12 : l'ajout manuel enregistre une présence de source FORMATEUR")
+    void ajout_manuel_enregistre_une_presence_formateur() {
+        preparerAjoutManuel();
+        when(presenceRepository.saveAndFlush(any(Presence.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        PresenceReponse reponse = presenceService.ajouterPresenceManuelle(
+                new AjoutPresenceManuelleRequete(SESSION_ID, ETUDIANT_ID));
+
+        assertThat(reponse.sessionId()).isEqualTo(SESSION_ID);
+        assertThat(reponse.etudiantId()).isEqualTo(ETUDIANT_ID);
+        // La source est décidée par le service : le client ne peut pas la choisir.
+        assertThat(reponse.source()).isEqualTo(SourcePresence.FORMATEUR);
+    }
+
+    @Test
+    @DisplayName("EF10 : l'ajout manuel fonctionne même avec un code expiré, et sans code à fournir")
+    void ajout_manuel_ignore_l_expiration_du_code() {
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(true)));
+        when(etudiantRepository.existsById(ETUDIANT_ID)).thenReturn(true);
+        when(presenceRepository.existsBySessionIdAndEtudiantId(SESSION_ID, ETUDIANT_ID)).thenReturn(false);
+        when(presenceRepository.saveAndFlush(any(Presence.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertThat(presenceService.ajouterPresenceManuelle(
+                new AjoutPresenceManuelleRequete(SESSION_ID, ETUDIANT_ID)).source())
+                .isEqualTo(SourcePresence.FORMATEUR);
+
+        // RG1 n'est jamais consulté par ce chemin : ni code, ni expiration.
+        verify(sessionRepository, never()).findByCode(any());
+    }
+
+    @Test
+    @DisplayName("EF10 : une session inconnue est refusée en 404 SESSION_INCONNUE")
+    void ajout_manuel_session_inconnue() {
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> presenceService.ajouterPresenceManuelle(
+                new AjoutPresenceManuelleRequete(SESSION_ID, ETUDIANT_ID)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> {
+                    ExceptionMetier erreur = (ExceptionMetier) thrown;
+                    assertThat(erreur.getCode()).isEqualTo(CodeErreur.SESSION_INCONNUE);
+                    // 404 sur cette opération, là où le dépôt d'exercice répond 400.
+                    assertThat(erreur.getStatut()).isEqualTo(HttpStatus.NOT_FOUND);
+                });
+
+        verify(presenceRepository, never()).saveAndFlush(any(Presence.class));
+    }
+
+    @Test
+    @DisplayName("EF10 : un étudiant inconnu est refusé en 404 ETUDIANT_INCONNU")
+    void ajout_manuel_etudiant_inconnu() {
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(false)));
+        when(etudiantRepository.existsById(ETUDIANT_ID)).thenReturn(false);
+
+        assertThatThrownBy(() -> presenceService.ajouterPresenceManuelle(
+                new AjoutPresenceManuelleRequete(SESSION_ID, ETUDIANT_ID)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> {
+                    ExceptionMetier erreur = (ExceptionMetier) thrown;
+                    assertThat(erreur.getCode()).isEqualTo(CodeErreur.ETUDIANT_INCONNU);
+                    assertThat(erreur.getStatut()).isEqualTo(HttpStatus.NOT_FOUND);
+                });
+
+        verify(presenceRepository, never()).saveAndFlush(any(Presence.class));
+    }
+
+    @Test
+    @DisplayName("EF10 : un doublon est refusé en 409 DEJA_PRESENT, sans rien écrire")
+    void ajout_manuel_doublon_refuse() {
+        preparerAjoutManuel();
+        when(presenceRepository.existsBySessionIdAndEtudiantId(SESSION_ID, ETUDIANT_ID)).thenReturn(true);
+
+        assertThatThrownBy(() -> presenceService.ajouterPresenceManuelle(
+                new AjoutPresenceManuelleRequete(SESSION_ID, ETUDIANT_ID)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> assertThat(((ExceptionMetier) thrown).getCode())
+                        .isEqualTo(CodeErreur.DEJA_PRESENT));
+
+        verify(presenceRepository, never()).saveAndFlush(any(Presence.class));
+    }
+
+    @Test
+    @DisplayName("EF10 : deux clics simultanés donnent un 409 par la contrainte d'unicité, jamais un 500")
+    void ajout_manuel_course_entre_deux_clics() {
+        preparerAjoutManuel();
+        // Le contrôle applicatif a laissé passer les deux requêtes : c'est
+        // uk_presence_session_etudiant qui tranche, au flush.
+        when(presenceRepository.saveAndFlush(any(Presence.class)))
+                .thenThrow(new DataIntegrityViolationException("uk_presence_session_etudiant"));
+
+        assertThatThrownBy(() -> presenceService.ajouterPresenceManuelle(
+                new AjoutPresenceManuelleRequete(SESSION_ID, ETUDIANT_ID)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> {
+                    ExceptionMetier erreur = (ExceptionMetier) thrown;
+                    assertThat(erreur.getCode()).isEqualTo(CodeErreur.DEJA_PRESENT);
+                    assertThat(erreur.getStatut()).isEqualTo(HttpStatus.CONFLICT);
+                });
+    }
+
+    /** Contexte nominal de l'ajout manuel : session et étudiant existants, pas de doublon. */
+    private void preparerAjoutManuel() {
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(false)));
+        when(etudiantRepository.existsById(ETUDIANT_ID)).thenReturn(true);
+        when(presenceRepository.existsBySessionIdAndEtudiantId(SESSION_ID, ETUDIANT_ID)).thenReturn(false);
     }
 
     private void preparerSession(Session session) {

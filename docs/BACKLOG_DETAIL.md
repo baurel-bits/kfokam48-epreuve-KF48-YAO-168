@@ -201,6 +201,14 @@ Ces points des anciennes issues sont **abandonnés tant qu'ils ne sont pas tranc
 ### Livrables
 - Endpoint + service + DTO ; gestion des doublons ; tests unitaires et d'intégration.
 
+### Décisions d'implémentation (issue #18)
+- **Ordre des contrôles** : session (`404 SESSION_INCONNUE`), étudiant (`404 ETUDIANT_INCONNU`), doublon (`409 DEJA_PRESENT`). La contrainte d'unicité `uk_presence_session_etudiant` est en plus rattrapée (`DataIntegrityViolationException`) : deux clics simultanés produisent le `409` du contrat, pas un `500`.
+- **`404` ici, `400` sur l'opération imposée** : le contrat déclare `ETUDIANT_INCONNU` en `404` sur `/api/presences/manuelles`, mais en `400` sur `POST /api/presences`. Chaque opération suit sa propre déclaration (B2) : même règle métier, deux guichets, deux statuts.
+- **`source` jamais reçue du client** : c'est l'opération appelée qui la fixe à `FORMATEUR` (RG12), jamais le corps de la requête.
+- **Ni code, ni expiration, ni clôture** : l'ajout ne consulte pas le code de présence — il fonctionne sans code et après les 15 minutes de RG1. La clôture ne le bloque pas non plus : RG14 ne gèle que les **dépôts** et les **notes**, et le contrat le formule ainsi.
+- **RG13 vérifié à la source** : le pool des relecteurs est lu par `PresenceRepository.findBySessionId`, **sans filtrer la source**. Une présence manuelle rend donc bien l'étudiant éligible au tirage, comme une présence marquée avec le code.
+- **Écart frontend assumé** : « action masquée ou désactivée pour un étudiant déjà présent » n'est pas réalisable — aucune opération ne liste les présences d'une session (même famille de limite que l'absence de relecture d'une session, section 11 du cahier des charges). L'écran affiche donc l'état **après** la réponse du serveur (`201`, ou `409` reflété en « Déjà présent ») au lieu de le deviner, ce qui évite tout recalcul de règle côté client (F3).
+
 ---
 
 ## EF11

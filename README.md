@@ -62,14 +62,14 @@ par F2 :
 
 | Écran | Chemin | Contenu |
 |---|---|---|
-| Formateur | `/formateur` | EF1 — ouvrir une session, obtenir le code de présence |
-| Étudiant | `/etudiant` | EF2/EF3 — choisir son nom, marquer sa présence, déposer son exercice |
+| Formateur | `/formateur` | EF1 — ouvrir une session et obtenir le code · EF11 — clôturer (gel des dépôts et des notes) · EF9 — tableau de bord de la promotion · EF10 — ajouter une présence manuellement |
+| Étudiant | `/etudiant` | EF2/EF3 — choisir son nom, marquer sa présence, déposer son exercice · EF8 — consulter la note reçue |
 | Relecteur | `/relecteur` | EF6 — retrouver l'exercice confié, rendre sa note et son commentaire |
 
 ## Vérifications
 
 ```bash
-# Tests backend : 60 tests sur H2, sans PostgreSQL (B6)
+# Tests backend : 127 tests sur H2, sans PostgreSQL (B6)
 cd backend && ./mvnw test
 
 # Frontend : typage et build de production
@@ -81,7 +81,8 @@ node scripts/parcours-navigateur.mjs
 
 `scripts/parcours-navigateur.mjs` pilote Chrome en headless par le DevTools
 Protocol et déroule le parcours complet — accueil → formateur → étudiant →
-relecteur — en cliquant réellement sur les formulaires. Il vérifie ce que les
+relecteur, puis le retour au formateur pour la clôture et la présence manuelle
+(37 vérifications) — en cliquant réellement sur les formulaires. Il vérifie ce que les
 tests MockMvc ne peuvent pas voir : hydratation React, appels API depuis
 l'origine du navigateur (CORS), affichage des erreurs du contrat, mise en page
 mobile (ENF1) et non-divulgation de l'identité de l'auteur au relecteur (RG6).
@@ -125,7 +126,12 @@ scripts/                Outillage (backlog GitHub, parcours navigateur)
   réservées aux EF du cahier des charges. Le formateur ne peut donc revoir que
   les sessions ouvertes **depuis son navigateur** : leur code y est mémorisé
   localement, ce qui le préserve d'un rechargement de page sans ajouter de route
-  au contrat (voir `docs/CAHIER_DES_CHARGES.md`, section 11).
+  au contrat (voir `docs/CAHIER_DES_CHARGES.md`, section 11). L'EF10 en dépend
+  aussi : l'ajout manuel de présence se fait sur une session connue de ce
+  navigateur, faute d'opération qui listerait les sessions du serveur. Et aucune
+  opération ne listant les présences d'une session, l'écran apprend qu'un
+  étudiant est déjà présent par le `409 DEJA_PRESENT` du serveur, jamais en le
+  supposant.
 - **Aucun envoi d'e-mail** : hors périmètre du sujet.
 - **Tableau de bord sans contrôle d'accès** (EF9, issue #14) : l'ébauche
   d'issue prévoyait qu'un formateur ne puisse pas consulter la promotion d'un
