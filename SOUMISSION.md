@@ -8,9 +8,13 @@
 | **Nom de l'application** | kfokam48-epreuve-KF48-YAO-168 |
 | **Dépôt GitHub (public)** | <https://github.com/baurel-bits/kfokam48-epreuve-KF48-YAO-168> |
 | **Branche soumise** | `main` |
-| **Hash du commit final** | `[[HASH_V1_0]]` |
+| **Hash du commit `[JALON] v1.0`** | `4338ff1` |
 | **Date de soumission** | 25 septembre 2026, avant 18h00 |
 | **Frontend choisi** | Next.js (App Router) — justification en §3 |
+
+Le hash ci-dessus identifie le commit `[JALON] v1.0`, qui clôt la documentation de
+fin. Seul ce fichier est ensuite modifié pour le relever : la pointe du dépôt soumis
+est donc le commit suivant, et les deux sont visibles avec `git log --oneline -3`.
 
 ## 1. Contenu du dépôt
 
@@ -93,7 +97,7 @@ migration `V2`.
 | Tests backend + intégration | `cd backend && ./mvnw test` | **161 tests, 0 échec** |
 | Typage et build frontend | `cd frontend && npx tsc --noEmit && npm run build` | succès |
 | Parcours navigateur réel (Chrome, sans dépendance) | `node scripts/parcours-navigateur.mjs` | **44/44** |
-| Installation depuis un clone vierge | les 3 commandes du §3 | rejouées sur un clone neuf, backend et frontend démarrés, données de démonstration présentes |
+| Installation depuis un clone vierge | les 3 commandes du §3 | rejouées sur un clone de `main` (`fc15ecb`) : conteneur `postgres:16`, migrations `V1`→`V3` appliquées sur un schéma **vide**, données de démonstration présentes, backend et frontend démarrés, puis parcours navigateur **44/44** rejoué contre ce clone |
 
 Le parcours navigateur traverse les trois écrans dans l'ordre du besoin
 (accueil → formateur → étudiant → relecteur → retour formateur) et vérifie ce que
