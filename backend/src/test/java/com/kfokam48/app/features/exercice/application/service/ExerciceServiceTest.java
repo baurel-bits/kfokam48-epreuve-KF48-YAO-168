@@ -3,6 +3,7 @@ package com.kfokam48.app.features.exercice.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -15,6 +16,7 @@ import com.kfokam48.app.features.exercice.domain.entity.Exercice;
 import com.kfokam48.app.features.exercice.domain.entity.StatutExercice;
 import com.kfokam48.app.features.exercice.domain.repository.ExerciceRepository;
 import com.kfokam48.app.features.promotion.domain.repository.EtudiantRepository;
+import com.kfokam48.app.features.relecture.application.service.AssignateurRelecteur;
 import com.kfokam48.app.features.session.domain.entity.Session;
 import com.kfokam48.app.features.session.domain.repository.SessionRepository;
 import java.time.LocalDateTime;
@@ -50,11 +52,15 @@ class ExerciceServiceTest {
     @Mock
     private EtudiantRepository etudiantRepository;
 
+    @Mock
+    private AssignateurRelecteur assignateurRelecteur;
+
     private ExerciceService exerciceService;
 
     @BeforeEach
     void initialiserLeService() {
-        exerciceService = new ExerciceService(exerciceRepository, sessionRepository, etudiantRepository);
+        exerciceService = new ExerciceService(exerciceRepository, sessionRepository, etudiantRepository,
+                assignateurRelecteur);
     }
 
     @Test
@@ -64,12 +70,30 @@ class ExerciceServiceTest {
         when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(false)));
         when(exerciceRepository.existsBySessionIdAndEtudiantId(SESSION_ID, ETUDIANT_ID)).thenReturn(false);
         when(exerciceRepository.save(any(Exercice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        // Aucun étudiant présent : aucun relecteur ne peut être assigné (EF5).
+        when(assignateurRelecteur.assignerUnRelecteur(any(), any(), any())).thenReturn(Optional.empty());
 
         ExerciceDeposeReponse reponse = exerciceService.deposer(
                 new DepotExerciceRequete(SESSION_ID, ETUDIANT_ID, LIEN_VALIDE));
 
         assertThat(reponse.statut()).isEqualTo(StatutExercice.DEPOSE);
         verify(exerciceRepository).save(any(Exercice.class));
+    }
+
+    @Test
+    @DisplayName("EF5 : quand un relecteur est assigné, l'exercice passe en EN_ATTENTE_RELECTURE (D4)")
+    void depot_avec_relecteur_assigne_passe_en_attente_de_relecture() {
+        when(etudiantRepository.existsById(ETUDIANT_ID)).thenReturn(true);
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(false)));
+        when(exerciceRepository.existsBySessionIdAndEtudiantId(SESSION_ID, ETUDIANT_ID)).thenReturn(false);
+        when(exerciceRepository.save(any(Exercice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(assignateurRelecteur.assignerUnRelecteur(any(), eq(SESSION_ID), eq(ETUDIANT_ID)))
+                .thenReturn(Optional.of(2L));
+
+        ExerciceDeposeReponse reponse = exerciceService.deposer(
+                new DepotExerciceRequete(SESSION_ID, ETUDIANT_ID, LIEN_VALIDE));
+
+        assertThat(reponse.statut()).isEqualTo(StatutExercice.EN_ATTENTE_RELECTURE);
     }
 
     @Test
@@ -84,6 +108,7 @@ class ExerciceServiceTest {
         when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(sessionExpiree));
         when(exerciceRepository.existsBySessionIdAndEtudiantId(SESSION_ID, ETUDIANT_ID)).thenReturn(false);
         when(exerciceRepository.save(any(Exercice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(assignateurRelecteur.assignerUnRelecteur(any(), any(), any())).thenReturn(Optional.empty());
 
         ExerciceDeposeReponse reponse = exerciceService.deposer(
                 new DepotExerciceRequete(SESSION_ID, ETUDIANT_ID, LIEN_VALIDE));

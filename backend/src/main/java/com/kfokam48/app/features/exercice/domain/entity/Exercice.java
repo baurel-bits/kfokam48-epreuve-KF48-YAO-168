@@ -52,6 +52,15 @@ public class Exercice {
         this.depotAt = depotAt;
     }
 
+    /**
+     * RG5 : l'assignation d'un relecteur fait passer l'exercice de {@code DEPOSE}
+     * à {@code EN_ATTENTE_RELECTURE} (D4). Sans relecteur éligible, il reste
+     * {@code DEPOSE} : aucun relecteur ne lui est attaché.
+     */
+    public void attribuerRelecteur() {
+        this.statut = StatutExercice.EN_ATTENTE_RELECTURE;
+    }
+
     public Long getId() {
         return id;
     }

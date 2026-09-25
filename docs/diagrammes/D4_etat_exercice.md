@@ -13,7 +13,13 @@ stateDiagram-v2
 - **Statut initial** : `DEPOSE`, décidé par le service au dépôt. Le client ne fournit jamais de statut.
 - **RG10 — dépôt jusqu'à la clôture** : le service de dépôt ne consulte **jamais** `session.expiration_at`. Un exercice reste déposable après l'expiration du code de présence (couvert par un test unitaire et un test d'intégration dédiés).
 - **RG14 — gel à la clôture** : lorsque `session.cloturee = true`, le dépôt est refusé en `409 SESSION_CLOTUREE`, avant tout enregistrement.
-- **Transition `DEPOSE → EN_ATTENTE_RELECTURE`** : **non implémentée ici**. L'assignation d'un relecteur est un effet de bord du dépôt, mais elle relève de l'**EF5** (issue #11) ; c'est pourquoi rien ne fait encore évoluer le statut au-delà de `DEPOSE`.
+- **Transition `DEPOSE → EN_ATTENTE_RELECTURE`** : **non implémentée ici**, elle relève de l'**EF5** (issue #11) : voir la section EF5 ci-dessous. Rien ne fait donc évoluer le statut au-delà de `DEPOSE` à l'issue de l'issue #10.
+
+## Implémentation (issue #11 — EF5, `POST /api/exercices` + `GET /api/exercices/{exerciceId}/relecteur`)
+
+- **Relecteur attribué ⇒ `EN_ATTENTE_RELECTURE`** : au dépôt, un relecteur est tiré parmi les étudiants **présents à la session**, l'auteur exclu (RG5, RG13, RG4 — algorithme dans `RelectureService`). La transition de D4 est alors franchie.
+- **Aucun étudiant éligible ⇒ l'exercice reste `DEPOSE`**, sans relecteur attaché. La garde de la transition est « Attribution d'un relecteur » : sans relecteur, un exercice ne peut pas être *en attente de relecture*.
+- **Équivalence `DEPOSE` ⟺ aucune relecture** : c'est elle qui rendra RG11 (EF4) vérifiable sans requête supplémentaire — un lien n'est remplaçable que tant qu'aucune relecture n'a été confiée. Conséquence pour le tableau (EF9) : `DEPOSE` et `EN_ATTENTE_RELECTURE` sont l'un comme l'autre « non rendus » et doivent apparaître en attente (RG9).
 
 ## Étape 2 — Implémentation de la v0.1
 

@@ -6,8 +6,10 @@ import type { DepotExerciceRequete, ExerciceDeposeReponse } from "@/core/api/typ
  * EF3 — l'étudiant dépose le lien de son exercice
  * (`POST /api/exercices`, contrat api/contrat.yaml).
  *
- * Le statut renvoyé (`DEPOSE`) vient exclusivement du serveur : le client ne
- * décide ni de la validité du lien ni du cycle de vie de l'exercice (F3).
+ * Le statut renvoyé (`DEPOSE`, ou `EN_ATTENTE_RELECTURE` dès qu'un relecteur a
+ * été assigné — EF5) vient exclusivement du serveur : le client ne décide ni de
+ * la validité du lien, ni du choix du relecteur, ni du cycle de vie de
+ * l'exercice (F3).
  */
 export function deposerExercice(
   requete: DepotExerciceRequete,
