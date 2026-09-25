@@ -1,12 +1,45 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  ArrowDownIcon,
+  ArrowUpDownIcon,
+  ArrowUpIcon,
+  CirclePlayIcon,
+  KeyRoundIcon,
+  LayoutListIcon,
+  LoaderCircleIcon,
+  UsersIcon,
+} from "lucide-react";
 import { ApiError, CODES_ERREUR } from "@/core/api/types";
 import type {
   EtudiantResume,
   LigneTableau,
   SessionOuverteReponse,
 } from "@/core/api/types";
+import { CodeSession, ExpirationSession } from "@/components/code-session";
+import { EnteteEtape } from "@/components/etape";
+import { AlerteErreur, Chargement, EtatVide } from "@/components/retours";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { ajouterPresenceManuelle } from "@/features/presence/api/ajouterPresenceManuelle";
 import { listerEtudiants } from "@/features/promotion/api/listerEtudiants";
 import { cloturerSession } from "@/features/session/api/cloturerSession";
@@ -18,6 +51,7 @@ import {
   type SessionEnregistree,
 } from "@/features/session/sessionsOuvertes";
 import { consulterTableau } from "@/features/tableau/api/consulterTableau";
+import { cn } from "@/lib/utils";
 
 /** Section de l'écran à laquelle rattacher une erreur. */
 type Etape = "session" | "cloture" | "tableau" | "presence";
@@ -34,18 +68,6 @@ function versErreur(echec: unknown, etape: Etape, messageParDefaut: string): Err
     return { etape, code: echec.code, message: echec.message };
   }
   return { etape, code: "ERREUR_INCONNUE", message: messageParDefaut };
-}
-
-function BlocErreur({ erreur }: { erreur: ErreurAffichee }) {
-  return (
-    <div
-      role="alert"
-      className="rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"
-    >
-      <p className="font-mono text-xs uppercase">{erreur.code}</p>
-      <p className="mt-1">{erreur.message}</p>
-    </div>
-  );
 }
 
 /** Formate une date ISO de l'API pour l'affichage (aucun calcul métier). */
@@ -68,12 +90,54 @@ function formaterMoyenne(moyenne: number | null): string {
 }
 
 /**
+ * Colonnes du tableau de bord et clé de tri associée. Le tri ne réordonne que
+ * l'affichage : les valeurs (moyennes, compteurs) restent celles du serveur.
+ */
+const COLONNES = [
+  { cle: "nom", libelle: "Étudiant", numerique: false },
+  { cle: "presences", libelle: "Présences", numerique: true },
+  { cle: "exercicesDeposes", libelle: "Dépôts", numerique: true },
+  { cle: "moyenne", libelle: "Moyenne", numerique: true },
+  { cle: "relecturesEnAttente", libelle: "Relectures en attente", numerique: true },
+] as const;
+
+type CleTri = (typeof COLONNES)[number]["cle"];
+type SensTri = "asc" | "desc";
+
+/** Compare deux lignes du tableau pour l'affichage (aucun recalcul de valeur). */
+function comparerLignes(
+  a: LigneTableau,
+  b: LigneTableau,
+  cle: CleTri,
+  sens: SensTri,
+): number {
+  if (cle === "nom") {
+    return sens === "asc" ? a.nom.localeCompare(b.nom, "fr") : b.nom.localeCompare(a.nom, "fr");
+  }
+
+  const valeurA = cle === "moyenne" ? a.moyenne : a[cle];
+  const valeurB = cle === "moyenne" ? b.moyenne : b[cle];
+
+  // Sans note rendue, la valeur reste en fin de liste dans les deux sens :
+  // l'ordre ne doit jamais laisser croire qu'un « — » est un zéro.
+  if (valeurA === null) {
+    return 1;
+  }
+  if (valeurB === null) {
+    return -1;
+  }
+  return sens === "asc" ? valeurA - valeurB : valeurB - valeurA;
+}
+
+/**
  * Écran formateur — EF1 (ouvrir une session et lire son code de présence),
  * EF11 (clôturer une session), EF9 (tableau de bord de la promotion) et EF10
  * (ajouter une présence manuellement).
  *
  * Aucune règle métier n'est recalculée ici (F3) : la moyenne, les compteurs,
- * l'état « en attente » et l'état « clôturée » viennent du serveur.
+ * l'état « en attente » et l'état « clôturée » viennent du serveur. Seule la
+ * présentation a changé : hiérarchie visuelle, composants shadcn/ui, thème
+ * clair/sombre et retours d'état homogènes avec les deux autres écrans.
  */
 export default function EcranFormateur() {
   const [titre, setTitre] = useState("");
@@ -83,6 +147,7 @@ export default function EcranFormateur() {
 
   const [tableau, setTableau] = useState<LigneTableau[] | null>(null);
   const [chargementTableau, setChargementTableau] = useState(false);
+  const [tri, setTri] = useState<{ cle: CleTri; sens: SensTri } | null>(null);
 
   const [sessions, setSessions] = useState<SessionEnregistree[]>([]);
   const [cloture, setCloture] = useState<number | null>(null);
@@ -105,6 +170,7 @@ export default function EcranFormateur() {
   // Le stockage local n'existe pas au rendu serveur : la liste est lue après
   // montage, sinon le HTML initial divergerait de celui du navigateur.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSessions(lireSessionsOuvertes());
   }, []);
 
@@ -244,348 +310,463 @@ export default function EcranFormateur() {
     }
   }
 
+  function basculerTri(cle: CleTri) {
+    setTri((precedent) =>
+      precedent !== null && precedent.cle === cle
+        ? { cle, sens: precedent.sens === "asc" ? "desc" : "asc" }
+        : { cle, sens: "asc" },
+    );
+  }
+
+  const lignesAffichees =
+    tableau === null || tri === null
+      ? tableau
+      : [...tableau].sort((a, b) => comparerLignes(a, b, tri.cle, tri.sens));
+
   return (
-    <section className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold">Espace formateur</h1>
-        <p className="mt-1 text-sm text-slate-600">
+    <div className="space-y-6">
+      <header className="space-y-3">
+        <div className="flex flex-wrap gap-1.5">
+          <Badge variant="secondary">Formateur</Badge>
+          <Badge variant="outline" className="font-normal text-muted-foreground">
+            EF1 · EF9 · EF10 · EF11
+          </Badge>
+        </div>
+        <h1 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
+          Espace formateur
+        </h1>
+        <p className="max-w-3xl text-sm text-muted-foreground">
           Ouvrez une session pour obtenir le code de présence à dicter aux
           étudiants, puis suivez la promotion d&apos;un coup d&apos;œil.
         </p>
       </header>
 
-      <form
-        onSubmit={soumettre}
-        className="space-y-4 rounded-lg border border-slate-200 bg-white p-5"
-      >
-        <h2 className="text-sm font-medium">1. Ouvrir une session</h2>
-
-        <div>
-          <label htmlFor="titre" className="block text-sm font-medium">
-            Titre de la session
-          </label>
-          <input
-            id="titre"
-            name="titre"
-            required
-            value={titre}
-            onChange={(evenement) => setTitre(evenement.target.value)}
-            placeholder="Cours du 25 septembre"
-            className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+      <Card>
+        <CardHeader>
+          <EnteteEtape
+            numero={1}
+            titre="Ouvrir une session"
+            description="Le code n'existe que dans la réponse du serveur : il s'affiche ici dès l'ouverture, en grand et copiable."
           />
-        </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <form onSubmit={soumettre} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="titre">Titre de la session</Label>
+                <Input
+                  id="titre"
+                  name="titre"
+                  required
+                  value={titre}
+                  onChange={(evenement) => setTitre(evenement.target.value)}
+                  placeholder="Cours du 25 septembre"
+                  className="h-10"
+                />
+              </div>
 
-        <div>
-          <label htmlFor="promotionId" className="block text-sm font-medium">
-            Identifiant de la promotion
-          </label>
-          <input
-            id="promotionId"
-            name="promotionId"
-            type="number"
-            min="1"
-            required
-            value={promotionId}
-            onChange={(evenement) => {
-              setPromotionId(evenement.target.value);
-              // Le tableau appartenait à la promotion précédente.
-              setTableau(null);
-            }}
-            placeholder="1"
-            className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
-          />
-          <p className="mt-1 text-xs text-slate-500">
-            La promotion de démonstration a l&apos;identifiant 1. Elle sert aussi
-            au tableau de bord ci-dessous.
-          </p>
-        </div>
+              <div className="space-y-2">
+                <Label htmlFor="promotionId">Identifiant de la promotion</Label>
+                <Input
+                  id="promotionId"
+                  name="promotionId"
+                  type="number"
+                  min="1"
+                  required
+                  value={promotionId}
+                  onChange={(evenement) => {
+                    setPromotionId(evenement.target.value);
+                    // Le tableau appartenait à la promotion précédente.
+                    setTableau(null);
+                  }}
+                  placeholder="1"
+                  className="h-10"
+                />
+                <p className="text-xs text-muted-foreground">
+                  La promotion de démonstration a l&apos;identifiant 1. Elle sert
+                  aussi au tableau de bord ci-dessous.
+                </p>
+              </div>
+            </div>
 
-        <button
-          type="submit"
-          disabled={chargement}
-          className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
-          {chargement ? "Ouverture…" : "Ouvrir la session"}
-        </button>
-      </form>
+            <Button type="submit" disabled={chargement} className="h-10 px-4">
+              {chargement ? (
+                <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
+              ) : (
+                <CirclePlayIcon aria-hidden="true" />
+              )}
+              {chargement ? "Ouverture…" : "Ouvrir la session"}
+            </Button>
+          </form>
 
-      {chargement && (
-        <p role="status" className="text-sm text-slate-600">
-          Ouverture de la session en cours…
-        </p>
-      )}
+          {chargement && <Chargement libelle="Ouverture de la session en cours…" />}
 
-      {erreur?.etape === "session" && <BlocErreur erreur={erreur} />}
+          {erreur?.etape === "session" && (
+            <AlerteErreur code={erreur.code} message={erreur.message} />
+          )}
+        </CardContent>
+      </Card>
 
       {session && (
-        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-5">
-          <h2 className="text-sm font-medium text-emerald-900">
-            Session ouverte — code à dicter
-          </h2>
-          <p className="mt-2 font-mono text-3xl tracking-widest text-emerald-900">
-            {session.code}
-          </p>
-          <dl className="mt-3 space-y-1 text-sm text-emerald-900">
-            <div>
-              <dt className="inline font-medium">Identifiant : </dt>
-              <dd className="inline">{session.id}</dd>
+        <Card className="border-success/40 ring-success/25">
+          <CardHeader>
+            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+              <div className="flex items-start gap-3">
+                <KeyRoundIcon className="mt-0.5 size-4 shrink-0 text-success" aria-hidden="true" />
+                <div className="space-y-1">
+                  <CardTitle className="text-success">Session ouverte — code à dicter</CardTitle>
+                  <CardDescription>
+                    Dictez ce code aux étudiants : il vaut pour cette session
+                    uniquement.
+                  </CardDescription>
+                </div>
+              </div>
+              <ExpirationSession
+                expirationAt={session.expirationAt}
+                dateFormatee={formaterDate(session.expirationAt)}
+              />
             </div>
-            <div>
-              <dt className="inline font-medium">Ouverte le : </dt>
-              <dd className="inline">{formaterDate(session.ouvertureAt)}</dd>
-            </div>
-            <div>
-              <dt className="inline font-medium">Expire le : </dt>
-              <dd className="inline">{formaterDate(session.expirationAt)}</dd>
-            </div>
-          </dl>
-          {sessionCouranteCloturee && (
-            <p className="mt-3 text-sm font-medium text-slate-700">
-              Session clôturée : les dépôts et les notes sont désormais refusés par
-              le serveur (RG14).
-            </p>
-          )}
-        </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <CodeSession code={session.code} />
+
+            <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+              <div>
+                <dt className="text-xs text-muted-foreground">Identifiant</dt>
+                <dd className="font-medium">{session.id}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Ouverte le</dt>
+                <dd className="font-medium">{formaterDate(session.ouvertureAt)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Expire le</dt>
+                <dd className="font-medium">{formaterDate(session.expirationAt)}</dd>
+              </div>
+            </dl>
+
+            {sessionCouranteCloturee && (
+              <p className="text-sm font-medium text-muted-foreground">
+                Session clôturée : les dépôts et les notes sont désormais refusés
+                par le serveur (RG14).
+              </p>
+            )}
+          </CardContent>
+        </Card>
       )}
 
-      <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-5">
-        <h2 className="text-sm font-medium">2. Sessions ouvertes depuis ce navigateur</h2>
-
-        <p className="text-xs text-slate-500">
-          Le code s&apos;affiche ci-dessus à l&apos;ouverture ; cette liste le
-          retrouve après un rechargement de la page. Elle ne contient que les
-          sessions ouvertes <strong>ici</strong> : le contrat ne prévoit aucune
-          opération qui relirait les sessions du serveur.
-        </p>
-        <p className="text-xs text-slate-500">
-          La validité d&apos;un code est décidée par le serveur — un étudiant qui
-          saisit un code périmé reçoit <code>CODE_EXPIRE</code>. L&apos;heure
-          d&apos;expiration est donc affichée telle quelle, sans être
-          réinterprétée ici (F3).
-        </p>
-
-        {sessions.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            Aucune session ouverte pour l&apos;instant.
+      <Card>
+        <CardHeader>
+          <EnteteEtape
+            numero={2}
+            titre="Sessions ouvertes depuis ce navigateur"
+            description="Le code s'affiche à l'ouverture ; cette liste le retrouve après un rechargement de la page. Elle ne contient que les sessions ouvertes ici."
+          />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="rounded-lg border border-info/30 bg-info/10 px-4 py-3 text-xs text-muted-foreground">
+            Le contrat ne prévoit aucune opération qui relirait les sessions du
+            serveur : cette liste est donc la seule trace disponible, et la
+            validité d&apos;un code est décidée par le serveur — un étudiant qui
+            saisit un code périmé reçoit <code className="font-mono">CODE_EXPIRE</code>.
+            L&apos;heure d&apos;expiration est donc affichée telle quelle, sans
+            être réinterprétée ici (F3).
           </p>
-        ) : (
-          <ul aria-label="Sessions ouvertes" className="flex flex-col gap-2">
-            {sessions.map((enregistree) => (
-              <li
-                key={enregistree.id}
-                className={`rounded border px-3 py-3 text-sm ${
-                  session?.id === enregistree.id
-                    ? "border-emerald-400 bg-emerald-50"
-                    : "border-slate-300"
-                }`}
-              >
-                <p className="font-medium">{enregistree.titre}</p>
-                <p className="mt-1 font-mono text-lg tracking-widest">
-                  {enregistree.code}
-                </p>
-                <p className="mt-1 text-xs text-slate-600">
-                  Session n°{enregistree.id} · promotion {enregistree.promotionId} ·
-                  ouverte le {formaterDate(enregistree.ouvertureAt)} · expire le{" "}
-                  {formaterDate(enregistree.expirationAt)}
-                </p>
 
-                <div className="mt-2">
-                  {enregistree.cloturee ? (
-                    // État renvoyé par le serveur à la clôture, jamais recalculé ici.
-                    <span className="rounded bg-slate-200 px-2 py-1 text-xs font-medium text-slate-700">
-                      Clôturée — dépôts et notes gelés
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={cloture === enregistree.id}
-                      onClick={() => cloturerUneSession(enregistree.id)}
-                      className="rounded border border-slate-300 px-3 py-1 text-xs font-medium disabled:opacity-50"
-                    >
-                      {cloture === enregistree.id ? "Clôture…" : "Clôturer"}
-                    </button>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {erreur?.etape === "cloture" && <BlocErreur erreur={erreur} />}
-      </section>
-
-      <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-5">
-        <h2 className="text-sm font-medium">3. Tableau de bord de la promotion</h2>
-
-        <p className="text-xs text-slate-500">
-          Une ligne par étudiant, y compris ceux qui n&apos;ont encore rien fait.
-          Une moyenne « — » signifie qu&apos;aucune note n&apos;a encore été reçue.
-        </p>
-
-        <button
-          type="button"
-          disabled={chargementTableau || promotionId.trim() === ""}
-          onClick={afficherLeTableau}
-          className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-medium disabled:opacity-50"
-        >
-          {chargementTableau ? "Chargement…" : "Afficher le tableau"}
-        </button>
-
-        {chargementTableau && (
-          <p role="status" className="text-sm text-slate-600">
-            Chargement du tableau de bord…
-          </p>
-        )}
-
-        {tableau !== null && tableau.length === 0 && (
-          <p className="text-sm text-slate-500">
-            Cette promotion ne contient aucun étudiant.
-          </p>
-        )}
-
-        {tableau !== null && tableau.length > 0 && (
-          <div className="overflow-x-auto">
-            <table aria-label="Tableau de bord" className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase text-slate-500">
-                  <th scope="col" className="border-b border-slate-200 py-2 pr-3">
-                    Étudiant
-                  </th>
-                  <th scope="col" className="border-b border-slate-200 py-2 pr-3">
-                    Présences
-                  </th>
-                  <th scope="col" className="border-b border-slate-200 py-2 pr-3">
-                    Dépôts
-                  </th>
-                  <th scope="col" className="border-b border-slate-200 py-2 pr-3">
-                    Moyenne
-                  </th>
-                  <th scope="col" className="border-b border-slate-200 py-2">
-                    Relectures en attente
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {tableau.map((ligne) => (
-                  <tr key={ligne.etudiantId} className="border-b border-slate-100">
-                    <th scope="row" className="py-2 pr-3 text-left font-medium">
-                      {ligne.nom}
-                    </th>
-                    <td className="py-2 pr-3">{ligne.presences}</td>
-                    <td className="py-2 pr-3">{ligne.exercicesDeposes}</td>
-                    <td className="py-2 pr-3">{formaterMoyenne(ligne.moyenne)}</td>
-                    <td className="py-2">{ligne.relecturesEnAttente}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {erreur?.etape === "tableau" && <BlocErreur erreur={erreur} />}
-      </section>
-
-      <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-5">
-        <h2 className="text-sm font-medium">4. Ajouter une présence (EF10)</h2>
-
-        <p className="text-xs text-slate-500">
-          Pour un étudiant qui n&apos;a pas pu saisir le code. Le serveur
-          enregistre la présence avec la source « FORMATEUR », donc distinguable
-          de celles que les étudiants marquent eux-mêmes (RG12). Aucun code
-          n&apos;est demandé, et la clôture ne la bloque pas : elle ne gèle que
-          les dépôts et les notes.
-        </p>
-
-        <div>
-          <label htmlFor="sessionPresence" className="block text-sm font-medium">
-            Session
-          </label>
-          <select
-            id="sessionPresence"
-            value={sessionPresence === null ? "" : String(sessionPresence)}
-            onChange={(evenement) => void choisirLaSession(evenement.target.value)}
-            className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="">Choisissez une session…</option>
-            {sessions.map((enregistree) => (
-              <option key={enregistree.id} value={enregistree.id}>
-                {enregistree.titre} — session n°{enregistree.id}
-              </option>
-            ))}
-          </select>
-          <p className="mt-1 text-xs text-slate-500">
-            {sessions.length === 0
-              ? "Ouvrez d'abord une session : cette liste ne connaît que celles ouvertes depuis ce navigateur."
-              : "Seules les sessions ouvertes depuis ce navigateur sont proposées : c'est la seule lecture de session dont dispose cet écran."}
-          </p>
-        </div>
-
-        {chargementEtudiants && (
-          <p role="status" className="text-sm text-slate-600">
-            Chargement des étudiants…
-          </p>
-        )}
-
-        {sessionPresence !== null && !chargementEtudiants && etudiants.length === 0 && (
-          <p className="text-sm text-slate-500">
-            Cette promotion ne contient aucun étudiant.
-          </p>
-        )}
-
-        {etudiants.length > 0 && (
-          <ul aria-label="Étudiants à marquer présents" className="flex flex-col gap-2">
-            {etudiants.map((etudiant) => {
-              const present = presents.get(etudiant.id);
-              return (
+          {sessions.length === 0 ? (
+            <EtatVide>Aucune session ouverte pour l&apos;instant.</EtatVide>
+          ) : (
+            <ul aria-label="Sessions ouvertes" className="flex flex-col gap-3">
+              {sessions.map((enregistree) => (
                 <li
-                  key={etudiant.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-300 px-3 py-2 text-sm"
-                >
-                  <span>
-                    {etudiant.prenom} {etudiant.nom}
-                  </span>
-
-                  {present !== undefined ? (
-                    // Confirmé par le serveur : 201 (créée) ou 409 (déjà présente).
-                    <span className="rounded bg-slate-200 px-2 py-1 text-xs font-medium text-slate-700">
-                      {present}
-                    </span>
-                  ) : confirmation === etudiant.id ? (
-                    <span className="flex gap-2">
-                      <button
-                        type="button"
-                        disabled={ajout === etudiant.id}
-                        onClick={() => void ajouterLaPresence(etudiant.id)}
-                        className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
-                      >
-                        {ajout === etudiant.id ? "Enregistrement…" : "Confirmer"}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={ajout === etudiant.id}
-                        onClick={() => setConfirmation(null)}
-                        className="rounded border border-slate-300 px-3 py-1 text-xs font-medium disabled:opacity-50"
-                      >
-                        Annuler
-                      </button>
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmation(etudiant.id)}
-                      className="rounded border border-slate-300 px-3 py-1 text-xs font-medium"
-                    >
-                      Marquer présent
-                    </button>
+                  key={enregistree.id}
+                  className={cn(
+                    "space-y-3 rounded-xl border p-4",
+                    session?.id === enregistree.id
+                      ? "border-success/40 bg-success/5"
+                      : "border-border bg-card",
                   )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                    <div className="space-y-1">
+                      <p className="font-medium">{enregistree.titre}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Session n°{enregistree.id} · promotion {enregistree.promotionId} ·
+                        ouverte le {formaterDate(enregistree.ouvertureAt)} · expire le{" "}
+                        {formaterDate(enregistree.expirationAt)}
+                      </p>
+                    </div>
 
-        {erreur?.etape === "presence" && <BlocErreur erreur={erreur} />}
-      </section>
-    </section>
+                    {enregistree.cloturee ? (
+                      // État renvoyé par le serveur à la clôture, jamais recalculé ici.
+                      <Badge variant="outline" className="text-muted-foreground">
+                        Clôturée — dépôts et notes gelés
+                      </Badge>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={cloture === enregistree.id}
+                        onClick={() => void cloturerUneSession(enregistree.id)}
+                      >
+                        {cloture === enregistree.id && (
+                          <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
+                        )}
+                        {cloture === enregistree.id ? "Clôture…" : "Clôturer"}
+                      </Button>
+                    )}
+                  </div>
+
+                  <CodeSession code={enregistree.code} taille="petit" />
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {erreur?.etape === "cloture" && (
+            <AlerteErreur code={erreur.code} message={erreur.message} />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <EnteteEtape
+            numero={3}
+            titre="Tableau de bord de la promotion"
+            description="Une ligne par étudiant, y compris ceux qui n'ont encore rien fait. Une moyenne « — » signifie qu'aucune note n'a encore été reçue."
+          />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={chargementTableau || promotionId.trim() === ""}
+              onClick={() => void afficherLeTableau()}
+              className="h-10 px-4"
+            >
+              {chargementTableau ? (
+                <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
+              ) : (
+                <LayoutListIcon aria-hidden="true" />
+              )}
+              {chargementTableau ? "Chargement…" : "Afficher le tableau"}
+            </Button>
+            {tableau !== null && (
+              <p className="text-xs text-muted-foreground">
+                Promotion {promotionId} · {tableau.length} étudiant
+                {tableau.length > 1 ? "s" : ""}
+              </p>
+            )}
+          </div>
+
+          {chargementTableau && (
+            <div className="space-y-2">
+              <Skeleton className="h-9 w-full" />
+              <Skeleton className="h-9 w-full" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+          )}
+
+          {tableau !== null && tableau.length === 0 && (
+            <EtatVide>Cette promotion ne contient aucun étudiant.</EtatVide>
+          )}
+
+          {lignesAffichees !== null && lignesAffichees.length > 0 && (
+            <Table aria-label="Tableau de bord">
+              <TableHeader>
+                <TableRow>
+                  {COLONNES.map((colonne) => {
+                    const actif = tri?.cle === colonne.cle;
+                    return (
+                      <TableHead
+                        key={colonne.cle}
+                        scope="col"
+                        aria-sort={
+                          actif ? (tri.sens === "asc" ? "ascending" : "descending") : "none"
+                        }
+                        className={cn(colonne.numerique && "text-right")}
+                      >
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Trier par ${colonne.libelle}`}
+                          onClick={() => basculerTri(colonne.cle)}
+                          className={cn(
+                            "h-7 gap-1 px-2 text-xs font-medium",
+                            colonne.numerique && "-mr-2 ml-auto",
+                          )}
+                        >
+                          {colonne.libelle}
+                          {actif ? (
+                            tri.sens === "asc" ? (
+                              <ArrowUpIcon aria-hidden="true" />
+                            ) : (
+                              <ArrowDownIcon aria-hidden="true" />
+                            )
+                          ) : (
+                            <ArrowUpDownIcon className="opacity-40" aria-hidden="true" />
+                          )}
+                        </Button>
+                      </TableHead>
+                    );
+                  })}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {lignesAffichees.map((ligne) => (
+                  <TableRow key={ligne.etudiantId}>
+                    <TableHead scope="row" className="font-medium">
+                      {ligne.nom}
+                    </TableHead>
+                    <TableCell className="text-right tabular-nums">
+                      {ligne.presences}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {ligne.exercicesDeposes}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {ligne.moyenne === null ? (
+                        <span className="text-muted-foreground">
+                          {formaterMoyenne(ligne.moyenne)}
+                        </span>
+                      ) : (
+                        <Badge variant="outline" className="font-mono">
+                          {formaterMoyenne(ligne.moyenne)}
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {ligne.relecturesEnAttente > 0 ? (
+                        <Badge variant="outline" className="border-warning/40 bg-warning/10 text-warning">
+                          {ligne.relecturesEnAttente}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground">0</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+
+          {erreur?.etape === "tableau" && (
+            <AlerteErreur code={erreur.code} message={erreur.message} />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <EnteteEtape
+            numero={4}
+            titre="Ajouter une présence (EF10)"
+            description="Pour un étudiant qui n'a pas pu saisir le code. Le serveur enregistre la présence avec la source « FORMATEUR », donc distinguable de celles marquées par les étudiants (RG12)."
+          />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="sessionPresence">Session</Label>
+            <select
+              id="sessionPresence"
+              value={sessionPresence === null ? "" : String(sessionPresence)}
+              onChange={(evenement) => void choisirLaSession(evenement.target.value)}
+              className="h-10 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
+            >
+              <option value="">Choisissez une session…</option>
+              {sessions.map((enregistree) => (
+                <option key={enregistree.id} value={enregistree.id}>
+                  {enregistree.titre} — session n°{enregistree.id}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              {sessions.length === 0
+                ? "Ouvrez d'abord une session : cette liste ne connaît que celles ouvertes depuis ce navigateur."
+                : "Seules les sessions ouvertes depuis ce navigateur sont proposées : c'est la seule lecture de session dont dispose cet écran. Aucun code n'est demandé, et la clôture ne bloque pas cet ajout : elle ne gèle que les dépôts et les notes."}
+            </p>
+          </div>
+
+          {chargementEtudiants && <Chargement libelle="Chargement des étudiants…" />}
+
+          {sessionPresence !== null && !chargementEtudiants && etudiants.length === 0 && (
+            <EtatVide>Cette promotion ne contient aucun étudiant.</EtatVide>
+          )}
+
+          {etudiants.length > 0 && (
+            <ul aria-label="Étudiants à marquer présents" className="flex flex-col gap-2">
+              {etudiants.map((etudiant) => {
+                const present = presents.get(etudiant.id);
+                return (
+                  <li
+                    key={etudiant.id}
+                    className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border border-border px-3 py-2 text-sm"
+                  >
+                    <span className="flex items-center gap-2">
+                      <UsersIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+                      {etudiant.prenom} {etudiant.nom}
+                    </span>
+
+                    {present !== undefined ? (
+                      // Confirmé par le serveur : 201 (créée) ou 409 (déjà présente).
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          present === "Déjà présent"
+                            ? "border-info/30 bg-info/10 text-info"
+                            : "border-success/30 bg-success/10 text-success",
+                        )}
+                      >
+                        {present}
+                      </Badge>
+                    ) : confirmation === etudiant.id ? (
+                      <span className="flex gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={ajout === etudiant.id}
+                          onClick={() => void ajouterLaPresence(etudiant.id)}
+                        >
+                          {ajout === etudiant.id && (
+                            <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
+                          )}
+                          {ajout === etudiant.id ? "Enregistrement…" : "Confirmer"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={ajout === etudiant.id}
+                          onClick={() => setConfirmation(null)}
+                        >
+                          Annuler
+                        </Button>
+                      </span>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setConfirmation(etudiant.id)}
+                      >
+                        Marquer présent
+                      </Button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {erreur?.etape === "presence" && (
+            <AlerteErreur code={erreur.code} message={erreur.message} />
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

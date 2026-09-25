@@ -1,6 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import {
+  KeyRoundIcon,
+  ListChecksIcon,
+  LoaderCircleIcon,
+  PencilLineIcon,
+  SaveIcon,
+  SendIcon,
+  UndoIcon,
+  UserRoundCheckIcon,
+} from "lucide-react";
 import { ApiError } from "@/core/api/types";
 import type {
   EtudiantResume,
@@ -8,11 +18,18 @@ import type {
   NoteRecue,
   PresenceReponse,
 } from "@/core/api/types";
+import { CLASSE_CARTE, EnteteEtape } from "@/components/etape";
+import { AlerteErreur, BlocSucces, Chargement, EtatVide } from "@/components/retours";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { deposerExercice } from "@/features/exercice/api/deposerExercice";
 import { remplacerLien } from "@/features/exercice/api/remplacerLien";
 import { marquerPresence } from "@/features/presence/api/marquerPresence";
 import { listerEtudiants } from "@/features/promotion/api/listerEtudiants";
 import { listerNotesRecues } from "@/features/relecture/api/listerNotesRecues";
+import { cn } from "@/lib/utils";
 
 /** Étape de l'écran à laquelle rattacher une erreur. */
 type Etape = "etudiants" | "presence" | "depot" | "remplacement" | "notes";
@@ -31,25 +48,15 @@ function versErreur(echec: unknown, etape: Etape, messageParDefaut: string): Err
   return { etape, code: "ERREUR_INCONNUE", message: messageParDefaut };
 }
 
-function BlocErreur({ erreur }: { erreur: ErreurAffichee }) {
-  return (
-    <div
-      role="alert"
-      className="rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"
-    >
-      <p className="font-mono text-xs uppercase">{erreur.code}</p>
-      <p className="mt-1">{erreur.message}</p>
-    </div>
-  );
-}
-
 /**
  * Écran étudiant — EF2 (marquer sa présence), EF3 (déposer son exercice),
  * EF4 (remplacer le lien de cet exercice) et EF8 (consulter ses notes reçues).
+ *
  * Vue mobile en priorité (ENF1) : une colonne, aucune largeur fixe, aucun
- * défilement horizontal. Aucune règle métier n'est recalculée ici (F3) :
- * format du lien, expiration du code, blocage RG3 et statut de l'exercice
- * viennent tous du serveur.
+ * défilement horizontal. Aucune règle métier n'est recalculée ici (F3) : format
+ * du lien, expiration du code, blocage RG3 et statut de l'exercice viennent tous
+ * du serveur. Les trois formulaires restent frères et dans l'ordre — leur style
+ * de carte est appliqué directement sur le `<form>`, sans boîte intermédiaire.
  */
 export default function EcranEtudiant() {
   const [promotionId, setPromotionId] = useState("1");
@@ -217,50 +224,58 @@ export default function EcranEtudiant() {
   }
 
   return (
-    <section className="mx-auto flex w-full max-w-sm flex-col gap-6">
-      <header>
-        <h1 className="text-2xl font-semibold">Espace étudiant</h1>
-        <p className="mt-1 text-sm text-slate-600">
+    <section className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+      <header className="space-y-3">
+        <div className="flex flex-wrap gap-1.5">
+          <Badge variant="secondary">Étudiant</Badge>
+          <Badge variant="outline" className="font-normal text-muted-foreground">
+            EF2 · EF3 · EF4 · EF8
+          </Badge>
+        </div>
+        <h1 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
+          Espace étudiant
+        </h1>
+        <p className="text-sm text-muted-foreground">
           Choisissez votre nom, saisissez le code dicté par le formateur, puis
           déposez le lien de votre exercice.
         </p>
       </header>
 
-      <form
-        onSubmit={chargerLesEtudiants}
-        className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4"
-      >
-        <h2 className="text-sm font-medium">1. Qui êtes-vous ?</h2>
+      <form onSubmit={chargerLesEtudiants} className={CLASSE_CARTE}>
+        <EnteteEtape
+          numero={1}
+          titre="Qui êtes-vous ?"
+          description="Il n'y a pas d'authentification : votre nom est choisi dans la promotion."
+        />
 
-        <div>
-          <label htmlFor="promotionId" className="block text-sm text-slate-600">
-            Promotion
-          </label>
-          <div className="mt-1 flex gap-2">
-            <input
+        <div className="space-y-2">
+          <Label htmlFor="promotionId">Promotion</Label>
+          <div className="flex flex-wrap gap-2">
+            <Input
               id="promotionId"
               type="number"
               min="1"
               required
               value={promotionId}
               onChange={(evenement) => setPromotionId(evenement.target.value)}
-              className="w-24 rounded border border-slate-300 px-3 py-2 text-sm"
+              className="h-10 w-28"
             />
-            <button
+            <Button
               type="submit"
               disabled={chargementListe}
-              className="flex-1 rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="h-10 flex-1 sm:flex-none sm:px-4"
             >
+              {chargementListe ? (
+                <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
+              ) : (
+                <UserRoundCheckIcon aria-hidden="true" />
+              )}
               {chargementListe ? "Chargement…" : "Afficher les étudiants"}
-            </button>
+            </Button>
           </div>
         </div>
 
-        {chargementListe && (
-          <p role="status" className="text-sm text-slate-600">
-            Chargement de la liste…
-          </p>
-        )}
+        {chargementListe && <Chargement libelle="Chargement de la liste…" />}
 
         {etudiants.length > 0 && (
           <ul className="flex flex-col gap-2">
@@ -276,11 +291,13 @@ export default function EcranEtudiant() {
                       // Les notes affichées appartenaient à l'étudiant précédent.
                       setNotes(null);
                     }}
-                    className={`w-full rounded border px-3 py-3 text-left text-sm ${
+                    className={cn(
+                      "w-full rounded-lg border px-3 py-3 text-left text-sm font-medium transition-colors",
+                      "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
                       selectionne
-                        ? "border-slate-900 bg-slate-900 text-white"
-                        : "border-slate-300 bg-white"
-                    }`}
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-card hover:bg-muted",
+                    )}
                   >
                     {etudiant.prenom} {etudiant.nom}
                   </button>
@@ -291,23 +308,24 @@ export default function EcranEtudiant() {
         )}
 
         {etudiants.length === 0 && !chargementListe && erreur?.etape !== "etudiants" && (
-          <p className="text-sm text-slate-500">Aucun étudiant affiché pour l&apos;instant.</p>
+          <EtatVide>Aucun étudiant affiché pour l&apos;instant.</EtatVide>
         )}
 
-        {erreur?.etape === "etudiants" && <BlocErreur erreur={erreur} />}
+        {erreur?.etape === "etudiants" && (
+          <AlerteErreur code={erreur.code} message={erreur.message} />
+        )}
       </form>
 
-      <form
-        onSubmit={soumettreLeCode}
-        className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4"
-      >
-        <h2 className="text-sm font-medium">2. Code de présence</h2>
+      <form onSubmit={soumettreLeCode} className={CLASSE_CARTE}>
+        <EnteteEtape
+          numero={2}
+          titre="Code de présence"
+          description="Le code est dicté par le formateur. Il est alphanumérique (lettres et chiffres), jamais uniquement des chiffres."
+        />
 
-        <div>
-          <label htmlFor="code" className="block text-sm text-slate-600">
-            Code dicté par le formateur
-          </label>
-          <input
+        <div className="space-y-2">
+          <Label htmlFor="code">Code dicté par le formateur</Label>
+          <Input
             id="code"
             name="code"
             required
@@ -317,65 +335,72 @@ export default function EcranEtudiant() {
             value={code}
             onChange={(evenement) => setCode(evenement.target.value)}
             placeholder="ABC234"
-            className="mt-1 w-full rounded border border-slate-300 px-3 py-3 font-mono text-center text-xl tracking-widest"
+            aria-describedby="code-aide"
+            className="h-16 text-center font-mono text-2xl font-semibold tracking-[0.3em]"
           />
+          <p id="code-aide" className="text-xs text-muted-foreground">
+            Saisissez-le tel qu&apos;il a été dicté, sans espace.
+          </p>
         </div>
 
-        <button
+        <Button
           type="submit"
           disabled={chargementPresence || etudiantId === null}
-          className="w-full rounded bg-slate-900 px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
+          className="h-11 w-full text-base"
         >
+          {chargementPresence ? (
+            <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
+          ) : (
+            <KeyRoundIcon aria-hidden="true" />
+          )}
           {chargementPresence ? "Enregistrement…" : "Marquer ma présence"}
-        </button>
+        </Button>
 
         {etudiantId === null && (
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-muted-foreground">
             Choisissez d&apos;abord votre nom à l&apos;étape 1.
           </p>
         )}
 
         {presence && (
-          <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-            <p className="font-medium">Présence enregistrée.</p>
-            <p className="mt-1">
+          <BlocSucces titre="Présence enregistrée.">
+            <p>
               Session n°{presence.sessionId} — source : {presence.source}
             </p>
-          </div>
+          </BlocSucces>
         )}
 
-        {erreur?.etape === "presence" && <BlocErreur erreur={erreur} />}
+        {erreur?.etape === "presence" && (
+          <AlerteErreur code={erreur.code} message={erreur.message} />
+        )}
       </form>
 
-      <form
-        onSubmit={deposerLeLien}
-        className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4"
-      >
-        <h2 className="text-sm font-medium">3. Déposer mon exercice</h2>
+      <form onSubmit={deposerLeLien} className={CLASSE_CARTE}>
+        <EnteteEtape
+          numero={3}
+          titre="Déposer mon exercice"
+          description="Le lien du dépôt, tel qu'il sera relu par un autre étudiant."
+        />
 
-        <div>
-          <label htmlFor="sessionId" className="block text-sm text-slate-600">
-            Session
-          </label>
-          <input
+        <div className="space-y-2">
+          <Label htmlFor="sessionId">Session</Label>
+          <Input
             id="sessionId"
             type="number"
             min="1"
             required
             value={sessionId}
             onChange={(evenement) => setSessionId(evenement.target.value)}
-            className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            className="h-10"
           />
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="text-xs text-muted-foreground">
             Renseigné automatiquement après avoir marqué votre présence.
           </p>
         </div>
 
-        <div>
-          <label htmlFor="lien" className="block text-sm text-slate-600">
-            Lien de l&apos;exercice
-          </label>
-          <input
+        <div className="space-y-2">
+          <Label htmlFor="lien">Lien de l&apos;exercice</Label>
+          <Input
             id="lien"
             name="lien"
             type="url"
@@ -385,77 +410,88 @@ export default function EcranEtudiant() {
             value={lien}
             onChange={(evenement) => setLien(evenement.target.value)}
             placeholder="https://…"
-            className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            className="h-10"
           />
         </div>
 
-        <button
+        <Button
           type="submit"
           disabled={chargementDepot || etudiantId === null}
-          className="w-full rounded bg-slate-900 px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
+          className="h-11 w-full text-base"
         >
+          {chargementDepot ? (
+            <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
+          ) : (
+            <SendIcon aria-hidden="true" />
+          )}
           {chargementDepot ? "Dépôt…" : "Déposer mon exercice"}
-        </button>
+        </Button>
 
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-muted-foreground">
           Le dépôt reste possible après l&apos;expiration du code, tant que le
           formateur n&apos;a pas clôturé la session.
         </p>
 
         {exercice && (
-          <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-            <p className="font-medium">Exercice déposé.</p>
-            <p className="mt-1">
+          <BlocSucces titre="Exercice déposé.">
+            <p>
               Exercice n°{exercice.id} — statut : {exercice.statut}
             </p>
+          </BlocSucces>
+        )}
+
+        {erreur?.etape === "depot" && (
+          <AlerteErreur code={erreur.code} message={erreur.message} />
+        )}
+      </form>
+
+      <section className={CLASSE_CARTE}>
+        <EnteteEtape
+          numero={4}
+          titre="Remplacer le lien de mon exercice"
+          description="Tant qu'aucune relecture n'a été commencée sur cet exercice et que la session n'est pas clôturée — c'est le serveur qui en décide."
+        />
+
+        {exercice === null ? (
+          <EtatVide>
+            Déposez d&apos;abord un exercice à l&apos;étape 3 : cette section
+            s&apos;appuie sur l&apos;exercice que vous venez de déposer.
+          </EtatVide>
+        ) : (
+          <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
+            <p className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="font-mono">
+                Exercice n°{exercice.id}
+              </Badge>
+              <Badge variant="secondary" className="font-mono">
+                {exercice.statut}
+              </Badge>
+            </p>
+            {lienDepose !== "" && (
+              <p className="mt-2 break-all text-xs text-muted-foreground">
+                Lien déposé : {lienDepose}
+              </p>
+            )}
           </div>
         )}
 
-        {erreur?.etape === "depot" && <BlocErreur erreur={erreur} />}
-      </form>
-
-      <section className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="text-sm font-medium">4. Remplacer le lien de mon exercice</h2>
-
-        {exercice === null ? (
-          <p className="text-sm text-slate-500">
-            Déposez d&apos;abord un exercice à l&apos;étape 3 : cette section
-            s&apos;appuie sur l&apos;exercice que vous venez de déposer.
-          </p>
-        ) : (
-          <p className="text-sm text-slate-600">
-            Exercice n°{exercice.id} — statut : {exercice.statut}
-            {lienDepose !== "" && (
-              <span className="mt-1 block break-all text-xs text-slate-500">
-                Lien déposé : {lienDepose}
-              </span>
-            )}
-          </p>
-        )}
-
         {exercice !== null && !remplacementOuvert && (
-          <button
+          <Button
             type="button"
+            variant="outline"
             onClick={ouvrirLeRemplacement}
-            className="w-full rounded border border-slate-300 px-4 py-3 text-sm font-medium"
+            className="h-11 w-full text-base"
           >
+            <PencilLineIcon aria-hidden="true" />
             Remplacer le lien
-          </button>
+          </Button>
         )}
 
         {exercice !== null && remplacementOuvert && (
-          <form onSubmit={soumettreLeRemplacement} className="flex flex-col gap-3">
-            <p className="text-xs text-slate-500">
-              Possible tant qu&apos;aucune relecture n&apos;a été commencée sur cet
-              exercice et que la session n&apos;est pas clôturée — c&apos;est le
-              serveur qui en décide.
-            </p>
-
-            <div>
-              <label htmlFor="nouveauLien" className="block text-sm text-slate-600">
-                Nouveau lien
-              </label>
-              <input
+          <form onSubmit={soumettreLeRemplacement} className="flex flex-col gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="nouveauLien">Nouveau lien</Label>
+              <Input
                 id="nouveauLien"
                 type="url"
                 required
@@ -464,91 +500,119 @@ export default function EcranEtudiant() {
                 value={nouveauLien}
                 onChange={(evenement) => setNouveauLien(evenement.target.value)}
                 placeholder="https://…"
-                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                className="h-10"
               />
             </div>
 
-            <div className="flex gap-2">
-              <button
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
                 type="submit"
                 disabled={chargementRemplacement}
-                className="flex-1 rounded bg-slate-900 px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
+                className="h-11 flex-1 text-base"
               >
+                {chargementRemplacement ? (
+                  <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
+                ) : (
+                  <SaveIcon aria-hidden="true" />
+                )}
                 {chargementRemplacement ? "Remplacement…" : "Enregistrer le nouveau lien"}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="outline"
                 disabled={chargementRemplacement}
                 onClick={fermerLeRemplacement}
-                className="rounded border border-slate-300 px-4 py-3 text-sm font-medium disabled:opacity-50"
+                className="h-11"
               >
+                <UndoIcon aria-hidden="true" />
                 Annuler
-              </button>
+              </Button>
             </div>
 
             {exerciceRemplace && (
-              <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                <p className="font-medium">Lien remplacé.</p>
-                <p className="mt-1">
+              <BlocSucces titre="Lien remplacé.">
+                <p>
                   Exercice n°{exerciceRemplace.id} — statut : {exerciceRemplace.statut}
                 </p>
-              </div>
+              </BlocSucces>
             )}
 
-            {erreur?.etape === "remplacement" && <BlocErreur erreur={erreur} />}
+            {erreur?.etape === "remplacement" && (
+              <AlerteErreur code={erreur.code} message={erreur.message} />
+            )}
           </form>
         )}
       </section>
 
-      <section className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="text-sm font-medium">5. Mes notes reçues</h2>
+      <section className={CLASSE_CARTE}>
+        <EnteteEtape
+          numero={5}
+          titre="Mes notes reçues"
+          description="La note et le commentaire reçus pour vos exercices. Le nom de votre relecteur ne vous est jamais communiqué."
+        />
 
-        <p className="text-xs text-slate-500">
-          La note et le commentaire reçus pour vos exercices. Le nom de votre
-          relecteur ne vous est jamais communiqué.
-        </p>
-
-        <button
+        <Button
           type="button"
+          variant="outline"
           disabled={etudiantId === null || chargementNotes}
-          onClick={chargerLesNotes}
-          className="w-full rounded border border-slate-300 bg-white px-4 py-3 text-sm font-medium disabled:opacity-50"
+          onClick={() => void chargerLesNotes()}
+          className="h-11 w-full text-base"
         >
+          {chargementNotes ? (
+            <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
+          ) : (
+            <ListChecksIcon aria-hidden="true" />
+          )}
           {chargementNotes ? "Chargement…" : "Afficher mes notes reçues"}
-        </button>
+        </Button>
 
         {etudiantId === null && (
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-muted-foreground">
             Choisissez d&apos;abord votre nom à l&apos;étape 1.
           </p>
         )}
 
         {notes !== null && notes.length === 0 && (
-          <p className="text-sm text-slate-500">Aucune relecture reçue pour l&apos;instant.</p>
+          <EtatVide>Aucune relecture reçue pour l&apos;instant.</EtatVide>
         )}
 
         {notes !== null && notes.length > 0 && (
-          <ul aria-label="Notes reçues" className="flex flex-col gap-2">
+          <ul aria-label="Notes reçues" className="flex flex-col gap-3">
             {notes.map((note) => (
               <li
                 key={note.exerciceId}
-                className="rounded border border-slate-300 px-3 py-3 text-sm"
+                className="flex flex-col gap-2 rounded-lg border border-border px-3 py-3 text-sm"
               >
-                <p className="font-medium">Exercice n°{note.exerciceId}</p>
-                <p className="mt-1 text-slate-600">
-                  {note.note === null
-                    ? `${note.statut} — note à venir`
-                    : `${note.note}/20 — ${note.statut}`}
-                </p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium">Exercice n°{note.exerciceId}</span>
+                  {note.note === null ? (
+                    <Badge variant="outline" className="text-muted-foreground">
+                      {note.statut} — note à venir
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="border-success/30 bg-success/10 font-mono text-success">
+                      {note.note}/20
+                    </Badge>
+                  )}
+                </div>
+
+                {note.note !== null && (
+                  <p className="text-xs text-muted-foreground">Statut : {note.statut}</p>
+                )}
+
                 {note.commentaire !== null && (
-                  <p className="mt-1 text-slate-600">{note.commentaire}</p>
+                  <p className="border-l-2 border-border pl-3 text-muted-foreground">
+                    {note.commentaire}
+                  </p>
                 )}
               </li>
             ))}
           </ul>
         )}
 
-        {erreur?.etape === "notes" && <BlocErreur erreur={erreur} />}
+        {erreur?.etape === "notes" && (
+          <AlerteErreur code={erreur.code} message={erreur.message} />
+        )}
       </section>
     </section>
   );
