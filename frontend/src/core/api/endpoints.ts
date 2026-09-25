@@ -20,9 +20,11 @@ export const ENDPOINTS = {
     MARQUER_MANUELLE: "/api/presences/manuelles",
   },
 
-  /** EF3 — l'étudiant dépose le lien de son exercice. */
+  /** EF3/EF4 — l'étudiant dépose le lien de son exercice, puis peut le remplacer. */
   EXERCICES: {
     DEPOSER: "/api/exercices",
+    /** EF4 — remplacement tant qu'aucune relecture n'a été commencée (RG11). */
+    REMPLACER_LIEN: (exerciceId: number) => `/api/exercices/${exerciceId}/lien`,
   },
 
   /**

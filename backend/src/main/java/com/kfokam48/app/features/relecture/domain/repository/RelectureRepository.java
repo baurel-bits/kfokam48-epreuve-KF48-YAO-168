@@ -12,6 +12,13 @@ public interface RelectureRepository extends JpaRepository<Relecture, Long> {
     Optional<Relecture> findByExerciceId(Long exerciceId);
 
     /**
+     * Une relecture a-t-elle été confiée sur cet exercice (EF4, RG11) ? Elle
+     * existe dès l'assignation faite au dépôt (EF5), avant même que le relecteur
+     * n'ait rendu quoi que ce soit.
+     */
+    boolean existsByExerciceId(Long exerciceId);
+
+    /**
      * Missions d'un relecteur dans un état donné (EF6), dans l'ordre
      * d'assignation : l'API renvoie ainsi une liste stable plutôt que l'ordre
      * décidé par le plan d'exécution de la base.

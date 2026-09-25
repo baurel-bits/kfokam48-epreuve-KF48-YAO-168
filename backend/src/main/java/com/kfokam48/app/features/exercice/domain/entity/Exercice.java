@@ -62,6 +62,18 @@ public class Exercice {
     }
 
     /**
+     * EF4 (RG11) : le lien est remplacé par celui-ci. Le <strong>statut ne change
+     * pas</strong> : la seule situation où RG11 autorise un remplacement est celle
+     * d'un exercice resté {@code DEPOSE}, faute de relecteur éligible au dépôt.
+     *
+     * <p>Le lien reçu a déjà été validé par le service (format {@code http(s)},
+     * 500 caractères) et l'est de nouveau par la colonne {@code lien}.
+     */
+    public void remplacerLien(String lien) {
+        this.lien = lien;
+    }
+
+    /**
      * EF6/D4 : une note rendue fait passer l'exercice de
      * {@code EN_ATTENTE_RELECTURE} à {@code RELU}. Cette transition n'est
      * atteignable que si une relecture existe, ce que garantit l'assignation

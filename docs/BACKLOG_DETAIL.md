@@ -61,6 +61,35 @@ Substance reprise des issues d'origine (sauvegardées dans `backup/issues-avant-
 
 ---
 
+## EF4
+
+### Tests backend
+- Lien valide sur un exercice sans relecture → `200 {id, statut}`, le lien est remplacé et le **statut ne change pas** (D4).
+- Relecture **commencée** (tirée au dépôt, même sans note) → `409 RELECTURE_COMMENCEE` (RG11), le lien d'origine restant en place.
+- Relecture **rendue** → même refus.
+- Session clôturée → `409 SESSION_CLOTUREE` (RG14), contrôlée **avant** l'état de la relecture.
+- Lien mal formé ou absent → `400 LIEN_INVALIDE` (contrôlé avant toute lecture) ; exercice inconnu → `404 EXERCICE_INCONNU`.
+
+### Tests frontend
+- Après un dépôt, l'action « Remplacer le lien » apparaît, préremplie avec le lien déposé.
+- Remplacement accepté → confirmation et statut inchangé ; refusé → `{ code, message }` du serveur affiché tel quel.
+
+### Contraintes techniques
+- Endpoint du contrat : **`PUT /api/exercices/{id}/lien`** (déjà déclaré : `api/contrat.yaml` inchangé).
+- RG11 est contrôlé sur **l'existence de la relecture** (`existsByExerciceId`) et non sur le statut de l'exercice : l'équivalence `DEPOSE` ⟺ aucune relecture (D4) reste vraie, mais la règle ne dépend pas d'elle.
+- Aucune migration : le lien et le statut tiennent dans les colonnes de `V1`.
+
+### ⚠️ Écart tranché (section 11 du cahier des charges)
+L'ébauche d'issue disait « tant qu'aucune relecture n'a été **rendue** », ce qui laissait le remplacement ouvert pendant `EN_ATTENTE`. Or RG11 (Q13) — la règle que l'issue cite elle-même en référence — dit « tant qu'aucune relecture n'a été **commencée** », et le contrat déclare `409 RELECTURE_COMMENCEE`, jamais `RELECTURE_RENDUE`. Le modèle ne connaissant que `EN_ATTENTE` et `RENDUE`, « commencée » signifie qu'une relecture existe : le remplacement est refusé **dès l'assignation faite au dépôt** (EF5).
+
+Conséquence assumée : l'EF4 n'est atteignable que pour un exercice resté `DEPOSE`, c'est-à-dire déposé alors qu'aucun autre étudiant n'était présent. C'est la lecture stricte des règles, et elle fonctionne ; l'élargir à `EN_ATTENTE` aurait contredit RG11 et le code d'erreur du contrat.
+
+### Livrables
+- Endpoint + service + DTO ; tests unitaires (ordre des refus, statut inchangé) et d'intégration (`200`, `409` × 2, `400`, `404`).
+- Frontend : section « Remplacer le lien de mon exercice » de l'écran étudiant.
+
+---
+
 ## EF5
 
 ### Tests backend
@@ -245,7 +274,7 @@ Ces points des anciennes issues sont **abandonnés tant qu'ils ne sont pas tranc
 ### Points de gel (RG14)
 - **Dépôt d'exercice** → `409 SESSION_CLOTUREE`. En place depuis l'EF3 : le contrôle de clôture précède celui du doublon, si bien qu'un étudiant ayant déjà déposé reçoit bien `SESSION_CLOTUREE`.
 - **Notation** → `409 SESSION_CLOTUREE` sur `POST /api/relectures/{id}`. Le contrôle est placé **avant** `RELECTURE_DEJA_RENDUE` : une session clôturée interdit aussi la correction de l'EF7 (RG8), donc renvoyer l'appelant vers l'EF7 serait trompeur.
-- **Remplacement de lien** (EF4) : le même gel l'attend (RG11) ; cette issue étant hors de la v0.1, le contrôle arrivera avec elle.
+- **Remplacement de lien** (EF4) → `409 SESSION_CLOTUREE` sur `PUT /api/exercices/{id}/lien`, livré avec l'issue #16 : le gel de RG14 couvre désormais les **dépôts**, les **remplacements de lien** et les **notes** (création et correction).
 - **Correction de note** (EF7) → `409 SESSION_CLOTUREE` sur `PUT /api/relectures/{id}/correction`, livré avec l'issue #17 : le gel de RG8 est donc **complet** côté notes (création et correction).
 
 ### Ce que la clôture ne fait pas

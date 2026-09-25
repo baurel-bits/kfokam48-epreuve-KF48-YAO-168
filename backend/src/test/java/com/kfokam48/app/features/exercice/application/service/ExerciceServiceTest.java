@@ -12,11 +12,13 @@ import com.kfokam48.app.common.error.CodeErreur;
 import com.kfokam48.app.common.exception.ExceptionMetier;
 import com.kfokam48.app.features.exercice.application.dto.DepotExerciceRequete;
 import com.kfokam48.app.features.exercice.application.dto.ExerciceDeposeReponse;
+import com.kfokam48.app.features.exercice.application.dto.RemplacementLienRequete;
 import com.kfokam48.app.features.exercice.domain.entity.Exercice;
 import com.kfokam48.app.features.exercice.domain.entity.StatutExercice;
 import com.kfokam48.app.features.exercice.domain.repository.ExerciceRepository;
 import com.kfokam48.app.features.promotion.domain.repository.EtudiantRepository;
 import com.kfokam48.app.features.relecture.application.service.AssignateurRelecteur;
+import com.kfokam48.app.features.relecture.domain.repository.RelectureRepository;
 import com.kfokam48.app.features.session.domain.entity.Session;
 import com.kfokam48.app.features.session.domain.repository.SessionRepository;
 import java.time.LocalDateTime;
@@ -33,15 +35,19 @@ import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * Test unitaire (B6) de la règle métier de l'issue #10 : RG10, un exercice peut
- * être déposé jusqu'à la clôture de la session, même après l'expiration du code.
+ * Test unitaire (B6) des règles métier des issues #10 (RG10 : un exercice peut
+ * être déposé jusqu'à la clôture de la session, même après l'expiration du code)
+ * et #16 (RG11 : le lien est remplaçable tant qu'aucune relecture n'a été
+ * commencée).
  */
 @ExtendWith(MockitoExtension.class)
 class ExerciceServiceTest {
 
     private static final Long SESSION_ID = 7L;
     private static final Long ETUDIANT_ID = 1L;
+    private static final Long EXERCICE_ID = 42L;
     private static final String LIEN_VALIDE = "https://exemple.org/exercice-1.pdf";
+    private static final String LIEN_REMPLACEMENT = "https://exemple.org/exercice-1-corrige.pdf";
 
     @Mock
     private ExerciceRepository exerciceRepository;
@@ -55,12 +61,15 @@ class ExerciceServiceTest {
     @Mock
     private AssignateurRelecteur assignateurRelecteur;
 
+    @Mock
+    private RelectureRepository relectureRepository;
+
     private ExerciceService exerciceService;
 
     @BeforeEach
     void initialiserLeService() {
         exerciceService = new ExerciceService(exerciceRepository, sessionRepository, etudiantRepository,
-                assignateurRelecteur);
+                assignateurRelecteur, relectureRepository);
     }
 
     @Test
@@ -191,6 +200,123 @@ class ExerciceServiceTest {
                         .isEqualTo(CodeErreur.ETUDIANT_INCONNU));
 
         verify(sessionRepository, never()).findById(any());
+    }
+
+    // ---------- EF4 (#16) : remplacer le lien tant qu'aucune relecture n'a commencé ----------
+
+    @Test
+    @DisplayName("RG11 (EF4) : sans relecture commencée, le lien est remplacé et le statut ne change pas")
+    void remplace_le_lien_sans_relecture() {
+        Exercice exercice = exercice(StatutExercice.DEPOSE);
+        unExercice(exercice, session(false));
+        when(relectureRepository.existsByExerciceId(EXERCICE_ID)).thenReturn(false);
+
+        ExerciceDeposeReponse reponse = exerciceService.remplacerLien(EXERCICE_ID,
+                new RemplacementLienRequete(LIEN_REMPLACEMENT));
+
+        assertThat(reponse.id()).isEqualTo(EXERCICE_ID);
+        // D4 : remplacer un lien ne franchit aucune transition d'état.
+        assertThat(reponse.statut()).isEqualTo(StatutExercice.DEPOSE);
+        assertThat(exercice.getLien()).isEqualTo(LIEN_REMPLACEMENT);
+        assertThat(exercice.getStatut()).isEqualTo(StatutExercice.DEPOSE);
+    }
+
+    @Test
+    @DisplayName("RG11 (EF4) : une relecture commencée refuse le remplacement en 409 RELECTURE_COMMENCEE")
+    void relecture_commencee_refuse_le_remplacement() {
+        // Un relecteur a été tiré au dépôt (EF5) : la relecture est commencée, même
+        // si aucune note n'a encore été rendue.
+        Exercice exercice = exercice(StatutExercice.EN_ATTENTE_RELECTURE);
+        unExercice(exercice, session(false));
+        when(relectureRepository.existsByExerciceId(EXERCICE_ID)).thenReturn(true);
+
+        assertThatThrownBy(() -> exerciceService.remplacerLien(EXERCICE_ID,
+                new RemplacementLienRequete(LIEN_REMPLACEMENT)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> {
+                    ExceptionMetier erreur = (ExceptionMetier) thrown;
+                    assertThat(erreur.getCode()).isEqualTo(CodeErreur.RELECTURE_COMMENCEE);
+                    assertThat(erreur.getStatut()).isEqualTo(HttpStatus.CONFLICT);
+                });
+
+        assertThat(exercice.getLien()).isEqualTo(LIEN_VALIDE);
+    }
+
+    @Test
+    @DisplayName("RG11 (EF4) : une relecture rendue refuse aussi le remplacement")
+    void relecture_rendue_refuse_le_remplacement() {
+        Exercice exercice = exercice(StatutExercice.RELU);
+        unExercice(exercice, session(false));
+        when(relectureRepository.existsByExerciceId(EXERCICE_ID)).thenReturn(true);
+
+        assertThatThrownBy(() -> exerciceService.remplacerLien(EXERCICE_ID,
+                new RemplacementLienRequete(LIEN_REMPLACEMENT)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> assertThat(((ExceptionMetier) thrown).getCode())
+                        .isEqualTo(CodeErreur.RELECTURE_COMMENCEE));
+    }
+
+    @Test
+    @DisplayName("RG14 (EF4) : une session clôturée refuse le remplacement en 409 SESSION_CLOTUREE")
+    void session_cloturee_refuse_le_remplacement() {
+        Exercice exercice = exercice(StatutExercice.DEPOSE);
+        unExercice(exercice, session(true));
+
+        assertThatThrownBy(() -> exerciceService.remplacerLien(EXERCICE_ID,
+                new RemplacementLienRequete(LIEN_REMPLACEMENT)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> {
+                    ExceptionMetier erreur = (ExceptionMetier) thrown;
+                    assertThat(erreur.getCode()).isEqualTo(CodeErreur.SESSION_CLOTUREE);
+                    assertThat(erreur.getStatut()).isEqualTo(HttpStatus.CONFLICT);
+                });
+
+        // La clôture est contrôlée avant l'état de la relecture : le gel de RG14
+        // prime, et la relecture n'est même pas interrogée.
+        verify(relectureRepository, never()).existsByExerciceId(any());
+    }
+
+    @Test
+    @DisplayName("EF4 : un exercice inconnu est refusé en 404 EXERCICE_INCONNU")
+    void remplacement_d_un_exercice_inconnu() {
+        when(exerciceRepository.findById(EXERCICE_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> exerciceService.remplacerLien(EXERCICE_ID,
+                new RemplacementLienRequete(LIEN_REMPLACEMENT)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> {
+                    ExceptionMetier erreur = (ExceptionMetier) thrown;
+                    assertThat(erreur.getCode()).isEqualTo(CodeErreur.EXERCICE_INCONNU);
+                    assertThat(erreur.getStatut()).isEqualTo(HttpStatus.NOT_FOUND);
+                });
+
+        verify(sessionRepository, never()).findById(any());
+    }
+
+    @ParameterizedTest(name = "lien refusé : [{0}]")
+    @ValueSource(strings = {"", "   ", "pas-une-url", "exemple.org/x.pdf", "ftp://exemple.org/x.pdf"})
+    @DisplayName("EF4 : un lien mal formé est refusé en 400 LIEN_INVALIDE, sans atteindre la base")
+    void remplacement_avec_un_lien_invalide(String lienInvalide) {
+        assertThatThrownBy(() -> exerciceService.remplacerLien(EXERCICE_ID,
+                new RemplacementLienRequete(lienInvalide)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> assertThat(((ExceptionMetier) thrown).getCode())
+                        .isEqualTo(CodeErreur.LIEN_INVALIDE));
+
+        // Le format est contrôlé avant toute lecture : aucun exercice n'est chargé.
+        verify(exerciceRepository, never()).findById(any());
+    }
+
+    /** Exercice existant, rattaché à la session donnée. */
+    private void unExercice(Exercice exercice, Session session) {
+        when(exerciceRepository.findById(EXERCICE_ID)).thenReturn(Optional.of(exercice));
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session));
+    }
+
+    private Exercice exercice(StatutExercice statut) {
+        Exercice exercice = new Exercice(SESSION_ID, ETUDIANT_ID, LIEN_VALIDE, statut, LocalDateTime.now());
+        ReflectionTestUtils.setField(exercice, "id", EXERCICE_ID);
+        return exercice;
     }
 
     private Session session(boolean cloturee) {

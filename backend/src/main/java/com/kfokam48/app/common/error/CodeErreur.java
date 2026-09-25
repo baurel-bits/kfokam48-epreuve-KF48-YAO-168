@@ -48,6 +48,12 @@ public enum CodeErreur {
     /** EF5 (RG6) — aucune relecture n'est assignée à cet exercice (contrat : {@code 404}). */
     RELECTURE_INCONNUE,
 
+    /**
+     * EF4 (RG11) — une relecture a été commencée sur cet exercice, son lien ne
+     * peut plus être remplacé (contrat : {@code 409 RELECTURE_COMMENCEE}).
+     */
+    RELECTURE_COMMENCEE,
+
     /** EF5 (RG6) — l'appelant n'est pas le relecteur assigné (contrat : {@code 403}). */
     APPELANT_NON_AUTORISE,
 
