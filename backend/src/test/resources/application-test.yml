@@ -1,0 +1,7 @@
+spring:
+  datasource:
+    # Base en mémoire pour les tests (B6 : exécutables sur poste vierge, sans PostgreSQL).
+    url: jdbc:h2:mem:kfokam48;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
