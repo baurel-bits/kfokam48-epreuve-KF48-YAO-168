@@ -46,4 +46,12 @@ export const ENDPOINTS = {
     RELECTURES_RECUES: (etudiantId: number) =>
       `/api/etudiants/${etudiantId}/relectures-recues`,
   },
+
+  /**
+   * EF9 — tableau de bord du formateur (opération imposée). `promotionId` est
+   * obligatoire et transmis en paramètre de requête par la couche d'appel.
+   */
+  TABLEAU: {
+    CONSULTER: "/api/tableau",
+  },
 } as const;

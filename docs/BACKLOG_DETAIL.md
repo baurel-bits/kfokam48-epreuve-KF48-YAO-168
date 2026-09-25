@@ -140,26 +140,34 @@ Un exercice **sans relecture assignée** (aucun étudiant éligible au dépôt �
 - Nombre de relectures en attente.
 - Les étudiants **sans aucune activité** apparaissent quand même dans le tableau.
 
+### Définition de `relecturesEnAttente` (décision)
+Le contrat nomme le champ sans préciser de quel côté il se place. Il compte les relectures **des exercices de l'étudiant** qui ne sont pas encore rendues (`auteurId`, statut `EN_ATTENTE`) : c'est la lecture de RG9 (« un exercice sans relecture rendue doit apparaître comme tel dans le tableau »), cohérente avec la « moyenne des notes **reçues** » de la même ligne. Conséquence assumée : un exercice resté **sans relecteur** (aucun étudiant éligible au dépôt, décision EF5) n'est pas compté ici — l'opération liste des relectures, pas des exercices.
+
 ### Contraintes
-- Seules les évaluations rendues comptent dans la moyenne.
-- La moyenne est **calculée par le backend** ; le frontend n'effectue **aucun** calcul métier.
+- Seules les évaluations rendues portent une note : le statut est filtré dans la requête.
+- La moyenne est **calculée par le backend**, arrondie à deux décimales **par le serveur** ; le frontend n'effectue **aucun** calcul métier.
 - Un **remplacement de lien** ne doit pas augmenter le nombre de dépôts (pas de double comptage).
 - Éviter le problème **N+1** : agrégations SQL/JPA, projections/DTO, index appropriés.
 - Temps de réponse : **< 1 s** (ENF3) ; cible interne indicative < 200 ms.
+- Le nombre de requêtes est **constant** : six requêtes SQL au total (existence de la promotion, identités des étudiants, puis quatre agrégations), quel que soit l'effectif de la promotion.
 
 ### Tests backend
-- Promotion valide → `200` ; promotion inconnue → `404 PROMOTION_INCONNUE`.
+- Promotion valide → `200` ; promotion inconnue → `404 PROMOTION_INCONNUE` ; `promotionId` absent → `400 DEMANDE_INVALIDE`.
 - Comptage correct des présences, des dépôts, des relectures rendues et en attente.
 - Aucune note → moyenne `null` (jamais `0`).
-- Aucun problème N+1 ; statistiques calculées côté backend.
-- Test de performance documenté (dataset de test).
+- Aucun problème N+1, **mesuré** et non simplement affirmé : les compteurs Hibernate (`generate_statistics` activé dans le profil de test) montrent le même nombre de requêtes pour une promotion d'un étudiant et pour une de douze.
+- Une promotion sans étudiant renvoie une liste vide sans lancer d'agrégation.
 
 ### Tests frontend
 - Quatre états : chargement, données disponibles, aucune donnée, erreur.
-- Aucune agrégation côté client ; moyennes affichées telles que renvoyées par l'API.
+- Aucune agrégation côté client ; moyennes affichées telles que renvoyées par l'API, et **« — »** quand elles sont nulles (jamais « 0/20 », qui laisserait croire à une évaluation ratée).
+
+### ⚠️ Limite assumée
+L'ébauche d'issue décrivait un tableau **par session** (`?sessionId=`) et un contrôle `403 ACCES_REFUSE` empêchant un formateur de consulter la promotion d'un autre. Le premier point contredit l'opération **imposée** (qui prend `promotionId` et renvoie une ligne par étudiant) ; le second est inapplicable sans authentification (Q1), et le contrat ne déclare aucun `403` sur cette opération. Les deux sont abandonnés (cahier des charges, section 11).
 
 ### Livrables
-- Endpoint + requêtes d'agrégation + DTO de projection ; tests d'intégration et de performance.
+- Endpoint imposé + 5 requêtes de projection/agrégation + DTO de sortie ; tests unitaires (dont l'absence de N+1) et d'intégration.
+- Frontend : tableau de bord intégré à l'écran formateur (`/formateur`), qui reste l'un des trois écrans exigés par F2.
 
 ---
 

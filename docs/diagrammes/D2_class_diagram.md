@@ -153,7 +153,7 @@ classDiagram
 | **RG6** anonymat du relecteur | **non structurel** : choix de DTO sur `GET /api/etudiants/{id}/relectures-recues` (ne renvoie pas `relecteurId`) |
 | **RG7** note entière 0–20 | `relecture.note` + `CHECK (note BETWEEN 0 AND 20)` + `minimum/maximum` dans le contrat |
 | **RG8** correction avant clôture | `correction_relecture` (historique) + `PUT /api/relectures/{id}/correction` |
-| **RG9** exercice non relu = `en attente` | `relecture.statut = EN_ATTENTE`, exposé par `GET /api/tableau.relecturesEnAttente` |
+| **RG9** exercice non relu = `en attente` | `relecture.statut = EN_ATTENTE` ; `GET /api/tableau.relecturesEnAttente` compte ces relectures **côté auteur** (`auteurId`), et l'écran affiche « — » plutôt que « 0 » tant qu'aucune note n'a été rendue |
 | **RG10** dépôt jusqu'à clôture | `exercice.sessionId` + contrôle `session.cloturee` (service) |
 | **RG11** remplacement tant que non relu | `exercice.lien` + `PUT /api/exercices/{id}/lien` |
 | **RG12** présence manuelle distinguable | `presence.source = FORMATEUR` |
@@ -207,3 +207,5 @@ classDiagram
 > **EF5** (assignation automatique d'un relecteur) n'a volontairement **aucun endpoint** : c'est un effet de bord du dépôt d'exercice (`POST /api/exercices`), conformément à RG5/RG13.
 
 > **EF6** (note et commentaire rendus) écrit **deux** transitions dans la même transaction : `relecture.statut` passe de `EN_ATTENTE` à **`RENDUE`** et `exercice.statut` de `EN_ATTENTE_RELECTURE` à **`RELU`**. Ce sont deux énumérations distinctes (`StatutRelecture` et `StatutExercice`, enchaînées par D4) : `RENDUE` qualifie la relecture, `RELU` l'exercice. Une seconde note sur la même relecture est refusée en `409 RELECTURE_DEJA_RENDUE` ; sa correction relève de RG8 (`correction_relecture`, EF7).
+
+> **EF9** (tableau de bord) n'écrit rien : l'opération imposée `GET /api/tableau` est une simple lecture d'agrégats, servie par **six requêtes SQL, constantes** quelle que soit la taille de la promotion (existence de la promotion, identités des étudiants, puis un `GROUP BY` par indicateur). Aucune entité lourde n'est chargée : chaque requête renvoie une projection, ce qui écarte le N+1 que redoutait le sujet.

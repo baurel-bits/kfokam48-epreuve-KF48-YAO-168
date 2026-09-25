@@ -121,5 +121,9 @@ scripts/                Outillage (backlog GitHub, parcours navigateur)
   relecteur » (RG6) repose donc sur la comparaison d'identifiants, et non sur un
   véritable contrôle d'accès (voir `docs/CAHIER_DES_CHARGES.md`, section 11).
 - **Aucun envoi d'e-mail** : hors périmètre du sujet.
-- L'écran **« notes reçues »** (EF8, issue #13) n'est pas encore livré : la note
-  rendue par un relecteur n'est pas encore consultable côté étudiant.
+- **Tableau de bord sans contrôle d'accès** (EF9, issue #14) : l'ébauche
+  d'issue prévoyait qu'un formateur ne puisse pas consulter la promotion d'un
+  autre (`403 ACCES_REFUSE`). Faute d'authentification (Q1), il n'existe aucune
+  notion de « sa » promotion : la restriction est abandonnée, et l'opération
+  imposée `GET /api/tableau` ne déclare d'ailleurs aucun `403` (voir
+  `docs/CAHIER_DES_CHARGES.md`, section 11).

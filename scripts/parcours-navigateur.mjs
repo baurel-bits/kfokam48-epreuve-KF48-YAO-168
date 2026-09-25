@@ -507,6 +507,39 @@ async function deroulerLeParcours(port) {
   verifier("L'étudiant relu ne connaît pas l'identité de son relecteur (RG6)",
     !contenuNotes.includes(nomRelecteur), `relecteur=${nomRelecteur}`);
 
+  // 4d. Le formateur consulte le tableau de bord de sa promotion (EF9).
+  await cdp.envoyer("Page.navigate", { url: url("/formateur") });
+  await cdp.attendre(`document.querySelector("#promotionId") !== null`, "écran formateur affiché");
+  await attendreHydratation(cdp);
+  await cdp.evaluer(
+    `[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Afficher le tableau")).click()`,
+  );
+
+  let tableauVisible = true;
+  try {
+    await cdp.attendre(
+      `document.querySelector('table[aria-label="Tableau de bord"]') !== null`,
+      "tableau de bord affiché",
+      8000,
+    );
+  } catch {
+    tableauVisible = false;
+  }
+  const contenuTableau = await cdp.evaluer(
+    `document.querySelector('table[aria-label="Tableau de bord"]')?.innerText.split(String.fromCharCode(10)).join(" | ") ?? "(aucun)"`,
+  );
+  // Les en-têtes sont capitalisés par la feuille de style (`uppercase`) et
+  // `innerText` reflète cette transformation : la comparaison ignore donc la casse.
+  const entetes = contenuTableau.toLowerCase();
+  verifier("EF9 : le tableau de bord liste la promotion par étudiant avec ses quatre indicateurs",
+    tableauVisible && entetes.includes("présences") && entetes.includes("moyenne")
+      && entetes.includes("relectures en attente"),
+    contenuTableau);
+  verifier("EF9 : la note reçue par l'auteur remonte dans la moyenne du tableau",
+    tableauVisible && contenuTableau.includes("15/20"), contenuTableau);
+  verifier("EF9 : un étudiant sans note affiche un tiret, jamais 0 (la moyenne vient du serveur)",
+    tableauVisible && contenuTableau.includes("—"), contenuTableau);
+
   // ---------- 5. Chemin d'erreur et affichage mobile ----------
   console.log("\n5. Chemin d'erreur et affichage mobile");
 
