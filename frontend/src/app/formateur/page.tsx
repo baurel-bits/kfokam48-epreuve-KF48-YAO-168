@@ -1,9 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiError } from "@/core/api/types";
 import type { LigneTableau, SessionOuverteReponse } from "@/core/api/types";
 import { ouvrirSession } from "@/features/session/api/ouvrirSession";
+import {
+  enregistrerSessionOuverte,
+  lireSessionsOuvertes,
+  type SessionEnregistree,
+} from "@/features/session/sessionsOuvertes";
 import { consulterTableau } from "@/features/tableau/api/consulterTableau";
 
 /** Section de l'écran à laquelle rattacher une erreur. */
@@ -70,7 +75,15 @@ export default function EcranFormateur() {
   const [tableau, setTableau] = useState<LigneTableau[] | null>(null);
   const [chargementTableau, setChargementTableau] = useState(false);
 
+  const [sessions, setSessions] = useState<SessionEnregistree[]>([]);
+
   const [erreur, setErreur] = useState<ErreurAffichee | null>(null);
+
+  // Le stockage local n'existe pas au rendu serveur : la liste est lue après
+  // montage, sinon le HTML initial divergerait de celui du navigateur.
+  useEffect(() => {
+    setSessions(lireSessionsOuvertes());
+  }, []);
 
   async function soumettre(evenement: React.FormEvent<HTMLFormElement>) {
     evenement.preventDefault();
@@ -84,6 +97,9 @@ export default function EcranFormateur() {
         promotionId: Number(promotionId),
       });
       setSession(ouverte);
+      // Le code n'existe que dans cette réponse : le retenir est ce qui permet de
+      // le retrouver après un rechargement de la page.
+      setSessions(enregistrerSessionOuverte(ouverte, titre.trim(), Number(promotionId)));
       // La promotion vient de changer : le tableau affiché ne la concerne plus.
       setTableau(null);
     } catch (echec) {
@@ -212,7 +228,53 @@ export default function EcranFormateur() {
       )}
 
       <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-5">
-        <h2 className="text-sm font-medium">2. Tableau de bord de la promotion</h2>
+        <h2 className="text-sm font-medium">2. Sessions ouvertes depuis ce navigateur</h2>
+
+        <p className="text-xs text-slate-500">
+          Le code s&apos;affiche ci-dessus à l&apos;ouverture ; cette liste le
+          retrouve après un rechargement de la page. Elle ne contient que les
+          sessions ouvertes <strong>ici</strong> : le contrat ne prévoit aucune
+          opération qui relirait les sessions du serveur.
+        </p>
+        <p className="text-xs text-slate-500">
+          La validité d&apos;un code est décidée par le serveur — un étudiant qui
+          saisit un code périmé reçoit <code>CODE_EXPIRE</code>. L&apos;heure
+          d&apos;expiration est donc affichée telle quelle, sans être
+          réinterprétée ici (F3).
+        </p>
+
+        {sessions.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            Aucune session ouverte pour l&apos;instant.
+          </p>
+        ) : (
+          <ul aria-label="Sessions ouvertes" className="flex flex-col gap-2">
+            {sessions.map((enregistree) => (
+              <li
+                key={enregistree.id}
+                className={`rounded border px-3 py-3 text-sm ${
+                  session?.id === enregistree.id
+                    ? "border-emerald-400 bg-emerald-50"
+                    : "border-slate-300"
+                }`}
+              >
+                <p className="font-medium">{enregistree.titre}</p>
+                <p className="mt-1 font-mono text-lg tracking-widest">
+                  {enregistree.code}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Session n°{enregistree.id} · promotion {enregistree.promotionId} ·
+                  ouverte le {formaterDate(enregistree.ouvertureAt)} · expire le{" "}
+                  {formaterDate(enregistree.expirationAt)}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-5">
+        <h2 className="text-sm font-medium">3. Tableau de bord de la promotion</h2>
 
         <p className="text-xs text-slate-500">
           Une ligne par étudiant, y compris ceux qui n&apos;ont encore rien fait.

@@ -11,7 +11,7 @@ const ECRANS = [
     href: "/formateur",
     titre: "Espace formateur",
     description:
-      "EF1 / EF9 — ouvrir une session, obtenir le code de présence à dicter aux étudiants, puis suivre la promotion par étudiant.",
+      "EF1 / EF9 — ouvrir une session, obtenir le code à dicter aux étudiants (et le retrouver après rechargement), puis suivre la promotion par étudiant.",
   },
   {
     href: "/etudiant",
