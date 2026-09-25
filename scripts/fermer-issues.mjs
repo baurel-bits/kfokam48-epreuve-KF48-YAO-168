@@ -156,7 +156,10 @@ function git(...arguments_) {
  * nombre de commits rappelle qu'une issue peut en compter plusieurs.
  */
 function tracer(ef) {
-  const commits = git("log", "--all", "--format=%h %s", "-F", `--grep=(ef${ef})`)
+  // `--no-merges` : depuis que les branches sont fusionnées par des pull
+  // requests, les fusions portent le nom de la branche dans leur sujet et
+  // masqueraient les commits de l'issue.
+  const commits = git("log", "--all", "--no-merges", "--format=%h %s", "-F", `--grep=(ef${ef})`)
     .split("\n")
     .filter(Boolean);
   const branches = git("branch", "--list", "--format=%(refname:short)", `*ef${ef}-*`)
