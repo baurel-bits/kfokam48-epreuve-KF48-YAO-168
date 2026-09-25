@@ -5,3 +5,10 @@ spring:
     driver-class-name: org.h2.Driver
     username: sa
     password: ""
+  jpa:
+    properties:
+      hibernate:
+        # Compteurs Hibernate : le test d'intégration de l'EF9 s'en sert pour
+        # prouver que le nombre de requêtes du tableau ne dépend pas de
+        # l'effectif de la promotion (absence de N+1).
+        generate_statistics: true

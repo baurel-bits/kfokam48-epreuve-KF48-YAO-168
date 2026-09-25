@@ -163,6 +163,7 @@ Critères d'acceptation :
 
 **Critères d'acceptation :**
 - Quand le formateur demande le tableau d'une promotion, alors il obtient par étudiant : nombre de présences, exercices déposés, moyenne des notes reçues et relectures en attente.
+- Quand une relecture des exercices de l'étudiant n'est pas encore rendue, alors elle est comptée dans `relecturesEnAttente` (RG9) ; seules les relectures rendues portent une note et entrent ainsi dans la moyenne.
 - Quand un étudiant de la promotion n'a aucune activité, alors il apparaît quand même dans le tableau (tous les étudiants sont listés, pas seulement les actifs).
 - Quand aucune note n'a été reçue, alors la moyenne renvoyée est `null` et non `0`.
 - Quand la moyenne est affichée, alors elle provient de l'API, jamais d'un recalcul côté client.

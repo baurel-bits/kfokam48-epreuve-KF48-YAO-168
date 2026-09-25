@@ -165,3 +165,20 @@ export interface NoteRecue {
   note: number | null;
   commentaire: string | null;
 }
+
+/**
+ * Ligne de GET /api/tableau?promotionId= (EF9) — exactement les six champs du
+ * contrat imposé, ni email ni détail des relectures.
+ *
+ * `moyenne` reste nulle tant qu'aucune note n'a été rendue : l'écran affiche
+ * alors un tiret, jamais « 0 ». Elle est déjà arrondie par le serveur et n'est
+ * pas recalculée ici (F3).
+ */
+export interface LigneTableau {
+  etudiantId: number;
+  nom: string;
+  presences: number;
+  exercicesDeposes: number;
+  moyenne: number | null;
+  relecturesEnAttente: number;
+}
