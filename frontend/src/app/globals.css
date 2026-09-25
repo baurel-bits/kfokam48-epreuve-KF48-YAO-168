@@ -1,18 +1,193 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-}
+@custom-variant dark (&:is(.dark *));
 
+/**
+ * Tokens du thème (shadcn/ui + Tailwind CSS v4).
+ *
+ * La palette est sémantique : chaque intention d'interface (primaire,
+ * secondaire, succès, erreur, avertissement, information) a son jeton, plutôt
+ * qu'une couleur codée en dur. Les composants s'y réfèrent (`bg-card`,
+ * `text-muted-foreground`, `bg-success/12`…), ce qui garantit un rendu lisible
+ * en mode clair comme en mode sombre et évite les couleurs divergentes d'un
+ * écran à l'autre.
+ */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+/* Mode clair (par défaut). */
+:root {
+  color-scheme: light;
+  --background: oklch(0.984 0.005 250);
+  --foreground: oklch(0.216 0.033 258);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.216 0.033 258);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.216 0.033 258);
+  /* Primaire : bleu indigo, contraste AA sur blanc comme sur fond clair. */
+  --primary: oklch(0.52 0.166 258);
+  --primary-foreground: oklch(0.985 0.005 250);
+  --secondary: oklch(0.962 0.011 252);
+  --secondary-foreground: oklch(0.3 0.036 258);
+  --muted: oklch(0.962 0.011 252);
+  --muted-foreground: oklch(0.5 0.021 257);
+  --accent: oklch(0.945 0.017 253);
+  --accent-foreground: oklch(0.3 0.036 258);
+  /* Erreur / succès / avertissement / information : tons foncés en clair, pour
+     rester lisibles en texte sur fond blanc ou légèrement teinté. */
+  --destructive: oklch(0.552 0.199 27.5);
+  --destructive-foreground: oklch(0.985 0.005 250);
+  --success: oklch(0.5 0.115 157);
+  --success-foreground: oklch(0.985 0.005 250);
+  --warning: oklch(0.53 0.125 66);
+  --warning-foreground: oklch(0.99 0.01 90);
+  --info: oklch(0.52 0.13 245);
+  --info-foreground: oklch(0.985 0.005 250);
+  --border: oklch(0.906 0.012 254);
+  --input: oklch(0.918 0.012 254);
+  --ring: oklch(0.52 0.166 258);
+  --chart-1: oklch(0.52 0.166 258);
+  --chart-2: oklch(0.5 0.115 157);
+  --chart-3: oklch(0.53 0.125 66);
+  --chart-4: oklch(0.552 0.199 27.5);
+  --chart-5: oklch(0.52 0.13 245);
+  --radius: 0.75rem;
+  --sidebar: oklch(0.962 0.011 252);
+  --sidebar-foreground: oklch(0.216 0.033 258);
+  --sidebar-primary: oklch(0.52 0.166 258);
+  --sidebar-primary-foreground: oklch(0.985 0.005 250);
+  --sidebar-accent: oklch(0.945 0.017 253);
+  --sidebar-accent-foreground: oklch(0.3 0.036 258);
+  --sidebar-border: oklch(0.906 0.012 254);
+  --sidebar-ring: oklch(0.52 0.166 258);
+  /* Pile typographique unique, identique en clair et en sombre (aucune police
+     distante : le rendu ne dépend pas du réseau au moment du build). */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+/* Mode sombre : mêmes jetons, tons inversés pour rester lisibles sur fond foncé. */
+.dark {
+  color-scheme: dark;
+  --background: oklch(0.169 0.021 261);
+  --foreground: oklch(0.966 0.007 250);
+  --card: oklch(0.213 0.024 261);
+  --card-foreground: oklch(0.966 0.007 250);
+  --popover: oklch(0.228 0.025 261);
+  --popover-foreground: oklch(0.966 0.007 250);
+  --primary: oklch(0.705 0.148 258);
+  --primary-foreground: oklch(0.18 0.03 261);
+  --secondary: oklch(0.28 0.027 261);
+  --secondary-foreground: oklch(0.966 0.007 250);
+  --muted: oklch(0.268 0.025 261);
+  --muted-foreground: oklch(0.735 0.02 254);
+  --accent: oklch(0.3 0.03 261);
+  --accent-foreground: oklch(0.966 0.007 250);
+  --destructive: oklch(0.735 0.158 22);
+  --destructive-foreground: oklch(0.18 0.03 261);
+  --success: oklch(0.78 0.13 158);
+  --success-foreground: oklch(0.18 0.03 261);
+  --warning: oklch(0.83 0.145 82);
+  --warning-foreground: oklch(0.2 0.03 261);
+  --info: oklch(0.75 0.11 245);
+  --info-foreground: oklch(0.18 0.03 261);
+  --border: oklch(1 0 0 / 14%);
+  --input: oklch(1 0 0 / 18%);
+  --ring: oklch(0.62 0.14 258);
+  --chart-1: oklch(0.705 0.148 258);
+  --chart-2: oklch(0.78 0.13 158);
+  --chart-3: oklch(0.83 0.145 82);
+  --chart-4: oklch(0.735 0.158 22);
+  --chart-5: oklch(0.75 0.11 245);
+  --sidebar: oklch(0.213 0.024 261);
+  --sidebar-foreground: oklch(0.966 0.007 250);
+  --sidebar-primary: oklch(0.705 0.148 258);
+  --sidebar-primary-foreground: oklch(0.18 0.03 261);
+  --sidebar-accent: oklch(0.3 0.03 261);
+  --sidebar-accent-foreground: oklch(0.966 0.007 250);
+  --sidebar-border: oklch(1 0 0 / 14%);
+  --sidebar-ring: oklch(0.62 0.14 258);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* Transition douce au changement de thème, sans animer la première peinture. */
+    transition:
+      background-color 150ms ease,
+      color 150ms ease;
+  }
+  /* Focus visible homogène là où aucun composant ne le fournit déjà. */
+  a:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+  /* Le curseur reste un pointeur sur les contrôles cliquables (le preset shadcn
+     utilisé ne l'active pas), ce qui aide à distinguer ce qui est actionnable. */
+  button:not(:disabled),
+  label[for],
+  select:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
 }
