@@ -480,6 +480,33 @@ async function deroulerLeParcours(port) {
   verifier("La mission quitte la liste des relectures à rendre",
     await cdp.evaluer(`document.body.innerText.includes("Aucun exercice ne vous est confié")`));
 
+  // 4c. L'étudiant relu consulte sa note, sans connaître son relecteur (EF8).
+  await cdp.envoyer("Page.navigate", { url: url("/etudiant") });
+  await cdp.attendre(`document.querySelector("#promotionId") !== null`, "écran étudiant affiché");
+  await attendreHydratation(cdp);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(1) button[type="submit"]'));
+  await cdp.attendre(`document.querySelectorAll("ul li button").length > 1`, "liste des étudiants", 8000);
+  // L'auteur du dépôt est le second étudiant de la liste (ordre alphabétique).
+  await cdp.evaluer(`document.querySelectorAll("ul li button")[1].click()`);
+  await cdp.evaluer(
+    `[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Afficher mes notes reçues")).click()`,
+  );
+
+  let notesVisibles = true;
+  try {
+    await cdp.attendre(`document.querySelector('ul[aria-label="Notes reçues"]') !== null`, "notes reçues affichées", 8000);
+  } catch {
+    notesVisibles = false;
+  }
+  const contenuNotes = await cdp.evaluer(
+    `document.querySelector('ul[aria-label="Notes reçues"]')?.innerText.split(String.fromCharCode(10)).join(" ") ?? "(aucune)"`,
+  );
+  verifier("L'étudiant relu voit sa note et le commentaire reçus (EF8)",
+    notesVisibles && contenuNotes.includes("15/20") && contenuNotes.includes("RENDUE") && contenuNotes.includes("Travail clair"),
+    contenuNotes);
+  verifier("L'étudiant relu ne connaît pas l'identité de son relecteur (RG6)",
+    !contenuNotes.includes(nomRelecteur), `relecteur=${nomRelecteur}`);
+
   // ---------- 5. Chemin d'erreur et affichage mobile ----------
   console.log("\n5. Chemin d'erreur et affichage mobile");
 

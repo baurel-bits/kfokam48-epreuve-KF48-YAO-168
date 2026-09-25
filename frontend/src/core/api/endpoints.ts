@@ -40,4 +40,10 @@ export const ENDPOINTS = {
     MISSIONS_EN_ATTENTE: (etudiantId: number) =>
       `/api/relecteurs/${etudiantId}/relectures-en-attente`,
   },
+
+  /** EF8 — notes reçues par un étudiant relu (jamais l'identité du relecteur). */
+  ETUDIANTS: {
+    RELECTURES_RECUES: (etudiantId: number) =>
+      `/api/etudiants/${etudiantId}/relectures-recues`,
+  },
 } as const;

@@ -153,3 +153,15 @@ export interface RelectureRendueReponse {
   commentaire: string;
   statut: StatutRelecture;
 }
+
+/**
+ * Élément de GET /api/etudiants/{etudiantId}/relectures-recues (EF8).
+ * L'identité du relecteur n'y figure jamais (RG6) ; `note` et `commentaire`
+ * restent nuls tant que la relecture est `EN_ATTENTE` (RG9).
+ */
+export interface NoteRecue {
+  exerciceId: number;
+  statut: StatutRelecture;
+  note: number | null;
+  commentaire: string | null;
+}

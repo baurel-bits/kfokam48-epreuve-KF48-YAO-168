@@ -7,6 +7,7 @@ import com.kfokam48.app.features.exercice.domain.repository.ExerciceRepository;
 import com.kfokam48.app.features.presence.domain.entity.Presence;
 import com.kfokam48.app.features.presence.domain.repository.PresenceRepository;
 import com.kfokam48.app.features.relecture.application.dto.MissionRelecteurReponse;
+import com.kfokam48.app.features.relecture.application.dto.NoteRecueReponse;
 import com.kfokam48.app.features.relecture.application.dto.RelectureRendueReponse;
 import com.kfokam48.app.features.relecture.application.dto.SoumissionRelectureRequete;
 import com.kfokam48.app.features.relecture.domain.entity.Relecture;
@@ -187,6 +188,26 @@ public class RelectureService implements AssignateurRelecteur {
                     return new MissionRelecteurReponse(relecture.getId(), exercice.getId(),
                             exercice.getSessionId(), exercice.getLien(), relecture.getStatut());
                 })
+                .toList();
+    }
+
+    /**
+     * Notes reçues par un étudiant relu (EF8), les plus récentes d'abord.
+     *
+     * <p>Une relecture non encore rendue apparaît malgré tout, avec une note et un
+     * commentaire nuls (RG9) : l'étudiant voit que son exercice est en attente au
+     * lieu de le croire ignoré. Aucune identité de relecteur n'est exposée (RG6),
+     * et l'exercice suffit à identifier la ligne côté étudiant.
+     *
+     * <p>Un exercice <strong>sans relecture assignée</strong> (aucun étudiant
+     * éligible au dépôt, EF5) n'apparaît pas : cette opération liste des
+     * relectures, pas des exercices.
+     */
+    @Transactional(readOnly = true)
+    public List<NoteRecueReponse> listerRelecturesRecues(Long etudiantId) {
+        return relectureRepository.findByAuteurIdOrderByIdDesc(etudiantId).stream()
+                .map(relecture -> new NoteRecueReponse(relecture.getExerciceId(), relecture.getStatut(),
+                        relecture.getNote(), relecture.getCommentaire()))
                 .toList();
     }
 

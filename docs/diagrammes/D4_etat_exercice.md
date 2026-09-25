@@ -28,6 +28,12 @@ stateDiagram-v2
 - **`RELU` ne publie rien** : l'étudiant relu n'accède à sa note que par l'EF8 (`GET /api/etudiants/{etudiantId}/relectures-recues`), qui ne divulgue jamais l'identité du relecteur.
 - **Correction ultérieure** : une seconde note sur la même relecture est refusée en `409 RELECTURE_DEJA_RENDUE` ; la correction avant clôture relève de l'EF7 (`PUT /api/relectures/{id}/correction`, RG8).
 
+## Implémentation (issue #13 — EF8, `GET /api/etudiants/{etudiantId}/relectures-recues`)
+
+- **Aucune transition d'état** : `RELU` est un état terminal (diagramme ci-dessus) ; EF8 ne fait que le **lire**, en lecture seule, sans modifier ni l'exercice ni la relecture. C'est la contrepartie annoncée par la section EF6 : `RELU` ne publie rien, c'est cette opération qui expose la note à l'étudiant relu.
+- **RG9 — « en attente » plutôt qu'ignoré** : tant que la relecture est `EN_ATTENTE`, l'étudiant voit son exercice avec une note nulle (état intermédiaire préexistant du diagramme) ; une fois `RENDUE`, il voit la note et le commentaire.
+- **Un exercice sans relecture n'apparaît pas** : l'opération liste les relectures de l'étudiant, pas ses exercices. C'est l'équivalence `DEPOSE` ⟺ aucune relecture (section EF5) qui produit ce cas ; l'exercice n'est pas perdu pour autant, il figure comme « non rendu » dans le tableau (RG9).
+
 ## Étape 2 — Implémentation de la v0.1
 
 * **Fait :** Initialisation des projets Spring Boot (Java 17) et React, création de la migration Flyway `V1__init_schema.sql`, implémentation de la gestion centralisée des erreurs API, mise en place des endpoints `/api/presences`, `/api/exercices` et `/api/tableau`, ainsi que le développement des 3 vues frontend.

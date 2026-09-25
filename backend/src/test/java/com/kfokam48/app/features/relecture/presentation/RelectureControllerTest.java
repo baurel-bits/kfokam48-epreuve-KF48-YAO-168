@@ -43,6 +43,9 @@ class RelectureControllerTest {
     /** Le relecteur est l'étudiant 2 : l'auteur (1) est présent mais écarté (RG4). */
     private static final long RELECTEUR_ID = 2L;
 
+    /** L'auteur des exercices déposés dans ces scénarios : le destinataire de l'EF8. */
+    private static final long AUTEUR_ID = 1L;
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -192,6 +195,48 @@ class RelectureControllerTest {
                 .andExpect(jsonPath("$.length()").value(0));
     }
 
+    @Test
+    @DisplayName("EF8 : l'étudiant relu voit sa note, sans jamais l'identité du relecteur (RG6)")
+    void notes_recues_apres_rendu() throws Exception {
+        Contexte contexte = preparerScenario();
+        rendre(contexte.relectureId(), 15);
+
+        JsonNode note = noteRecueDe(AUTEUR_ID, contexte.exerciceId());
+        if (note == null) {
+            throw new AssertionError("L'exercice %d devrait apparaître dans les notes reçues"
+                    .formatted(contexte.exerciceId()));
+        }
+        assertThat(note.get("statut").asText()).isEqualTo("RENDUE");
+        assertThat(note.get("note").asInt()).isEqualTo(15);
+        assertThat(note.get("commentaire").asText()).isEqualTo(COMMENTAIRE);
+        // RG6 : ni le relecteur ni l'auteur n'apparaissent dans la réponse.
+        assertThat(notesRecuesDe(AUTEUR_ID).findValues("relecteurId")).isEmpty();
+        assertThat(notesRecuesDe(AUTEUR_ID).findValues("auteurId")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("RG9 (EF8) : un exercice pas encore relu est affiché en attente, sans note")
+    void notes_recues_en_attente() throws Exception {
+        Contexte contexte = preparerScenario();
+
+        JsonNode note = noteRecueDe(AUTEUR_ID, contexte.exerciceId());
+        if (note == null) {
+            throw new AssertionError("L'exercice %d devrait apparaître en attente"
+                    .formatted(contexte.exerciceId()));
+        }
+        assertThat(note.get("statut").asText()).isEqualTo("EN_ATTENTE");
+        assertThat(note.get("note").isNull()).isTrue();
+        assertThat(note.get("commentaire").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("EF8 : un étudiant sans relecture reçoit une liste vide (le contrat ne déclare que 200)")
+    void notes_recues_vides_pour_un_etudiant_inconnu() throws Exception {
+        mockMvc.perform(get("/api/etudiants/{etudiantId}/relectures-recues", 999_999L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
     // ------------------------------------------------------------------
 
     private record Contexte(long sessionId, long exerciceId, long relectureId) {
@@ -216,6 +261,25 @@ class RelectureControllerTest {
                         .content(objectMapper.writeValueAsString(
                                 Map.of("note", note, "commentaire", COMMENTAIRE))))
                 .andExpect(status().isOk());
+    }
+
+    private JsonNode notesRecuesDe(long etudiantId) throws Exception {
+        String corps = mockMvc.perform(get("/api/etudiants/{etudiantId}/relectures-recues", etudiantId))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return objectMapper.readTree(corps);
+    }
+
+    /** La note reçue portant cet exercice, ou {@code null} si elle n'est pas listée. */
+    private JsonNode noteRecueDe(long etudiantId, long exerciceId) throws Exception {
+        for (JsonNode note : notesRecuesDe(etudiantId)) {
+            if (note.get("exerciceId").asLong() == exerciceId) {
+                return note;
+            }
+        }
+        return null;
     }
 
     private JsonNode listerMissionsEnAttente(long etudiantId) throws Exception {
