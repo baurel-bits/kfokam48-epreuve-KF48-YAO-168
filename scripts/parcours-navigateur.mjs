@@ -552,6 +552,149 @@ async function deroulerLeParcours(port) {
   verifier("EF9 : un étudiant sans note affiche un tiret, jamais 0 (la moyenne vient du serveur)",
     tableauVisible && contenuTableau.includes("—"), contenuTableau);
 
+  // 4e. Le formateur clôture la session : dépôts et notes sont gelés (EF11, RG14).
+  await cdp.envoyer("Page.navigate", { url: url("/formateur") });
+  await cdp.attendre(`document.querySelector('ul[aria-label="Sessions ouvertes"]') !== null`,
+    "liste des sessions affichée", 8000);
+  await attendreHydratation(cdp);
+  await cdp.evaluer(
+    `[...document.querySelectorAll('ul[aria-label="Sessions ouvertes"] button')]
+      .find((b) => b.textContent.includes("Clôturer")).click()`,
+  );
+
+  let clotureVisible = true;
+  try {
+    await cdp.attendre(`document.body.innerText.includes("Clôturée")`, "état clôturé affiché", 8000);
+  } catch {
+    clotureVisible = false;
+  }
+  const listeApresCloture = await cdp.evaluer(
+    `document.querySelector('ul[aria-label="Sessions ouvertes"]').innerText.split(String.fromCharCode(10)).join(" | ")`,
+  );
+  verifier("EF11 : la clôture de la session est enregistrée et affichée", clotureVisible,
+    listeApresCloture);
+
+  // Le dépôt doit désormais être refusé par le serveur, avec le code du contrat.
+  const sessionIdParcours = (listeSessions.match(/Session n°(\d+)/) ?? [])[1];
+  await cdp.envoyer("Page.navigate", { url: url("/etudiant") });
+  await cdp.attendre(`document.querySelector("#promotionId") !== null`, "écran étudiant affiché");
+  await attendreHydratation(cdp);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(1) button[type="submit"]'));
+  await cdp.attendre(`document.querySelectorAll("ul li button").length > 1`, "liste des étudiants", 8000);
+  await cdp.evaluer(`document.querySelectorAll("ul li button")[1].click()`);
+  await cdp.evaluer(`${REMPLIR}; remplir("#sessionId", ${JSON.stringify(sessionIdParcours ?? "")})`);
+  await cdp.evaluer(`${REMPLIR}; remplir("#lien", "https://exemple.org/apres-cloture.pdf")`);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(3) button[type="submit"]'));
+
+  let refusVisible = true;
+  try {
+    await cdp.attendre(`document.body.innerText.includes("SESSION_CLOTUREE")`, "refus de dépôt", 8000);
+  } catch {
+    refusVisible = false;
+  }
+  verifier("EF11/RG14 : après clôture, le dépôt est refusé avec le code SESSION_CLOTUREE", refusVisible,
+    await cdp.evaluer(
+      `(document.querySelector('[role="alert"]')?.innerText ?? "(aucun)").split(String.fromCharCode(10)).join(" ")`,
+    ));
+
+  // 4f. EF11 (suite) : après clôture, la notation est refusée elle aussi (RG14).
+  // Il faut une relecture encore EN_ATTENTE : celle de l'étape 4 a été rendue, et
+  // une relecture rendue ne figure plus dans les missions du relecteur. On rejoue
+  // donc un cycle complet — session, deux présences, dépôt — puis on clôture.
+  const titreNote = `Parcours navigateur EF11 ${new Date().toISOString().slice(11, 19)}`;
+  await cdp.envoyer("Page.navigate", { url: url("/formateur") });
+  await cdp.attendre(`document.querySelector("#titre") !== null`, "formulaire formateur affiché");
+  await attendreHydratation(cdp);
+  await cdp.evaluer(`${REMPLIR}; remplir("#titre", ${JSON.stringify(titreNote)})`);
+  await cdp.evaluer(`${REMPLIR}; remplir("#promotionId", "1")`);
+  await cdp.evaluer(cliquerSur('form button[type="submit"]'));
+  await cdp.attendre(`document.body.innerText.includes("Session ouverte")`, "seconde session ouverte");
+  // Le bloc vert du code précède la liste des sessions : c'est le premier monospace.
+  const codeNote = await cdp.evaluer(`document.querySelector("p.font-mono")?.innerText.trim() ?? ""`);
+  const sessionIdNote = (
+    (await cdp.evaluer(
+      `document.querySelector('ul[aria-label="Sessions ouvertes"]').innerText.split(String.fromCharCode(10)).join(" | ")`,
+    )).match(/Session n°(\d+)/) ?? []
+  )[1];
+
+  // Deux présences — l'auteur (1) puis l'autre présent (0) — et le dépôt de l'auteur :
+  // le relecteur tiré est le seul autre présent, et la relecture reste EN_ATTENTE.
+  await cdp.envoyer("Page.navigate", { url: url("/etudiant") });
+  await cdp.attendre(`document.querySelector("#promotionId") !== null`, "écran étudiant affiché");
+  await attendreHydratation(cdp);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(1) button[type="submit"]'));
+  await cdp.attendre(`document.querySelectorAll("ul li button").length > 1`, "liste des étudiants", 8000);
+  for (const rang of [1, 0]) {
+    await cdp.evaluer(`document.querySelectorAll("ul li button")[${rang}].click()`);
+    await cdp.evaluer(`${REMPLIR}; remplir("#code", ${JSON.stringify(codeNote)})`);
+    await cdp.evaluer(cliquerSur('form:nth-of-type(2) button[type="submit"]'));
+    await cdp.attendre(`document.body.innerText.includes("Présence enregistrée")`,
+      "présence sur la seconde session", 8000);
+  }
+  await cdp.evaluer(`document.querySelectorAll("ul li button")[1].click()`);
+  await cdp.evaluer(`${REMPLIR}; remplir("#lien", "https://exemple.org/note-gele.pdf")`);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(3) button[type="submit"]'));
+
+  let depotNoteOk = true;
+  try {
+    await cdp.attendre(`document.body.innerText.includes("Exercice déposé")`, "dépôt avant clôture", 8000);
+  } catch {
+    depotNoteOk = false;
+  }
+  verifier("EF11 : tant que la session n'est pas clôturée, le dépôt reste accepté", depotNoteOk,
+    await cdp.evaluer(
+      `(document.querySelector('[role="alert"]')?.innerText ?? document.body.innerText).slice(0, 160).split(String.fromCharCode(10)).join(" ")`,
+    ));
+
+  // Clôture de la session qui porte cette relecture encore en attente.
+  await cdp.envoyer("Page.navigate", { url: url("/formateur") });
+  await cdp.attendre(`document.querySelector('ul[aria-label="Sessions ouvertes"]') !== null`,
+    "liste des sessions affichée", 8000);
+  await attendreHydratation(cdp);
+  await cdp.evaluer(
+    `[...document.querySelectorAll('ul[aria-label="Sessions ouvertes"] button')]
+      .find((b) => b.textContent.includes("Clôturer")).click()`,
+  );
+  await cdp.attendre(`document.body.innerText.includes("Clôturée")`, "seconde session clôturée", 8000);
+
+  // Le relecteur retrouve sa mission — la clôture ne la supprime pas — mais le
+  // serveur refuse la note.
+  await cdp.envoyer("Page.navigate", { url: url("/relecteur") });
+  await cdp.attendre(`document.querySelector("#promotionId") !== null`, "écran relecteur affiché");
+  await attendreHydratation(cdp);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(1) button[type="submit"]'));
+  await cdp.attendre(`document.querySelectorAll("ul li button").length > 0`, "liste des étudiants (relecteur)", 8000);
+  await cdp.evaluer(`document.querySelectorAll("ul li button")[0].click()`);
+
+  let missionApresCloture = true;
+  try {
+    await cdp.attendre(`document.body.innerText.includes("EN_ATTENTE")`, "mission encore listée", 8000);
+  } catch {
+    missionApresCloture = false;
+  }
+  verifier("EF11 : une relecture restée en attente reste visible pour son relecteur après la clôture",
+    missionApresCloture,
+    await cdp.evaluer(
+      `document.body.innerText.match(/Exercice n°\\d+ — session n°\\d+[\\s\\S]{0,20}/)?.[0]?.replace(/\\s+/g, " ") ?? document.body.innerText.slice(0, 160)`,
+    ));
+
+  await cdp.evaluer(`[...document.querySelectorAll("ul li button")].find((b) => b.textContent.includes("Exercice n°")).click()`);
+  await cdp.evaluer(`${REMPLIR}; remplir("#note", "12")`);
+  await cdp.evaluer(`${REMPLIR}; remplir("#commentaire", "Note tentative après la clôture.")`);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(2) button[type="submit"]'));
+
+  let notationRefusee = true;
+  try {
+    await cdp.attendre(`document.body.innerText.includes("SESSION_CLOTUREE")`, "refus de notation", 8000);
+  } catch {
+    notationRefusee = false;
+  }
+  verifier("EF11/RG14 : après clôture, la notation est refusée avec le code SESSION_CLOTUREE",
+    notationRefusee,
+    await cdp.evaluer(
+      `(document.querySelector('[role="alert"]')?.innerText ?? "(aucun)").split(String.fromCharCode(10)).join(" ")`,
+    ));
+
   // ---------- 5. Chemin d'erreur et affichage mobile ----------
   console.log("\n5. Chemin d'erreur et affichage mobile");
 
@@ -592,11 +735,16 @@ async function deroulerLeParcours(port) {
   verifier("Aucune exception JavaScript", exceptions.length === 0, exceptions.slice(0, 3).join(" | "));
   verifier("Aucune erreur console", erreursConsole.length === 0, erreursConsole.slice(0, 3).join(" | "));
 
-  // Deux entrées attendues sont exclues du contrôle : le 400 provoqué par le code
-  // inconnu (étape 4), et le chargement de page que ce script interrompt lui-même
-  // en naviguant (Chrome démarre sur BASE_URL, puis le pilote prend la main).
+  // Entrées attendues, exclues du contrôle : le 400 provoqué par le code inconnu
+  // (étape 5), les 409 provoqués par le dépôt et par la notation sur une session
+  // clôturée (étapes 4e et 4f — c'est précisément le comportement vérifié), et le
+  // chargement de page que ce script interrompt lui-même en naviguant (Chrome
+  // démarre sur BASE_URL, puis le pilote prend la main).
   const inattendues = requetesEnEchec.filter(
-    (e) => !e.includes(`HTTP 400 ${API_URL}/api/presences`) && !e.includes("net::ERR_ABORTED (Document)"),
+    (e) => !e.includes(`HTTP 400 ${API_URL}/api/presences`)
+      && !e.includes(`HTTP 409 ${API_URL}/api/exercices`)
+      && !e.includes(`HTTP 409 ${API_URL}/api/relectures/`)
+      && !e.includes("net::ERR_ABORTED (Document)"),
   );
   verifier("Aucune requête réseau en échec hors refus provoqué", inattendues.length === 0,
     inattendues.slice(0, 4).join(" | ")

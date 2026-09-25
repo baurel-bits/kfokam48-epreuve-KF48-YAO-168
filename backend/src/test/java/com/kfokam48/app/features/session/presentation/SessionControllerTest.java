@@ -20,13 +20,15 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 /**
  * Test d'intégration (B6) de l'opération imposée {@code POST /api/sessions}
- * sur base H2 en mémoire, schéma créé par les migrations Flyway.
+ * (EF1) et de la clôture {@code POST /api/sessions/{id}/cloture} (EF11) sur base
+ * H2 en mémoire, schéma créé par les migrations Flyway.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -41,6 +43,9 @@ class SessionControllerTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     @DisplayName("POST /api/sessions répond 201 avec expirationAt = ouvertureAt + 15 min")
@@ -137,5 +142,66 @@ class SessionControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("PROMOTION_INCONNUE"))
                 .andExpect(jsonPath("$.message").isNotEmpty());
+    }
+
+    // ---------- EF11 : clôture d'une session ----------
+
+    @Test
+    @DisplayName("EF11 : POST /api/sessions/{id}/cloture répond 200 {id, cloturee} — et non 201")
+    void cloture_une_session() throws Exception {
+        long sessionId = ouvrirUneSession();
+
+        mockMvc.perform(post("/api/sessions/{id}/cloture", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value((int) sessionId))
+                .andExpect(jsonPath("$.cloturee").value(true))
+                // Le contrat ne déclare que deux champs : rien d'autre n'est exposé.
+                .andExpect(jsonPath("$.code").doesNotExist())
+                .andExpect(jsonPath("$.trace").doesNotExist());
+
+        assertThat(cloturee(sessionId)).isTrue();
+    }
+
+    @Test
+    @DisplayName("EF11 : reclôturer une session clôturée reste un 200 (idempotent)")
+    void recloture_idempotente() throws Exception {
+        long sessionId = ouvrirUneSession();
+
+        mockMvc.perform(post("/api/sessions/{id}/cloture", sessionId)).andExpect(status().isOk());
+        mockMvc.perform(post("/api/sessions/{id}/cloture", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.cloturee").value(true));
+
+        assertThat(cloturee(sessionId)).isTrue();
+    }
+
+    @Test
+    @DisplayName("EF11 : une session inconnue répond 404 SESSION_INCONNUE au format imposé")
+    void cloture_une_session_inconnue() throws Exception {
+        mockMvc.perform(post("/api/sessions/{id}/cloture", 999_999L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SESSION_INCONNUE"))
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andExpect(jsonPath("$.trace").doesNotExist());
+    }
+
+    /** Ouvre une session par l'API (EF1) et renvoie son identifiant. */
+    private long ouvrirUneSession() throws Exception {
+        String corps = mockMvc.perform(post("/api/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"titre":"Cours EF11","promotionId":1}
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return objectMapper.readTree(corps).get("id").asLong();
+    }
+
+    private boolean cloturee(long sessionId) {
+        Boolean valeur = jdbcTemplate.queryForObject(
+                "SELECT cloturee FROM session WHERE id = ?", Boolean.class, sessionId);
+        return Boolean.TRUE.equals(valeur);
     }
 }

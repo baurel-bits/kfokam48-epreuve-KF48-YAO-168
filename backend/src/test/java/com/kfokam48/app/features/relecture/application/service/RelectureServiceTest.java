@@ -22,6 +22,8 @@ import com.kfokam48.app.features.relecture.application.dto.SoumissionRelectureRe
 import com.kfokam48.app.features.relecture.domain.entity.Relecture;
 import com.kfokam48.app.features.relecture.domain.entity.StatutRelecture;
 import com.kfokam48.app.features.relecture.domain.repository.RelectureRepository;
+import com.kfokam48.app.features.session.domain.entity.Session;
+import com.kfokam48.app.features.session.domain.repository.SessionRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -62,11 +64,15 @@ class RelectureServiceTest {
     @Mock
     private ExerciceRepository exerciceRepository;
 
+    @Mock
+    private SessionRepository sessionRepository;
+
     private RelectureService relectureService;
 
     @BeforeEach
     void initialiserLeService() {
-        relectureService = new RelectureService(relectureRepository, presenceRepository, exerciceRepository);
+        relectureService = new RelectureService(relectureRepository, presenceRepository, exerciceRepository,
+                sessionRepository);
     }
 
     @Test
@@ -180,6 +186,7 @@ class RelectureServiceTest {
     void rg7_note_acceptee(String note) {
         when(relectureRepository.findById(EXERCICE_ID + 100)).thenReturn(Optional.of(relectureAssignee()));
         when(exerciceRepository.findById(EXERCICE_ID)).thenReturn(Optional.of(exercice()));
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(false)));
 
         RelectureRendueReponse reponse = relectureService.rendre(EXERCICE_ID + 100,
                 new SoumissionRelectureRequete(new BigDecimal(note), COMMENTAIRE));
@@ -262,6 +269,8 @@ class RelectureServiceTest {
         Relecture dejaRendue = relectureAssignee();
         dejaRendue.rendre(12, "Premier rendu.");
         when(relectureRepository.findById(EXERCICE_ID + 100)).thenReturn(Optional.of(dejaRendue));
+        when(exerciceRepository.findById(EXERCICE_ID)).thenReturn(Optional.of(exercice()));
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(false)));
 
         assertThatThrownBy(() -> relectureService.rendre(EXERCICE_ID + 100,
                 new SoumissionRelectureRequete(new BigDecimal("15"), COMMENTAIRE)))
@@ -275,6 +284,46 @@ class RelectureServiceTest {
         verify(relectureRepository, never()).save(any(Relecture.class));
     }
 
+    // ---------- EF11 : la clôture gèle la notation (RG14) ----------
+
+    @Test
+    @DisplayName("RG14 (EF11) : une session clôturée refuse la notation en 409 SESSION_CLOTUREE")
+    void session_cloturee_refuse_la_notation() {
+        Exercice exercice = exercice();
+        when(relectureRepository.findById(EXERCICE_ID + 100)).thenReturn(Optional.of(relectureAssignee()));
+        when(exerciceRepository.findById(EXERCICE_ID)).thenReturn(Optional.of(exercice));
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(true)));
+
+        assertThatThrownBy(() -> relectureService.rendre(EXERCICE_ID + 100,
+                new SoumissionRelectureRequete(new BigDecimal("15"), COMMENTAIRE)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> {
+                    ExceptionMetier erreur = (ExceptionMetier) thrown;
+                    assertThat(erreur.getCode()).isEqualTo(CodeErreur.SESSION_CLOTUREE);
+                    assertThat(erreur.getStatut()).isEqualTo(HttpStatus.CONFLICT);
+                });
+
+        // Rien n'a bougé : ni la note, ni le passage de l'exercice à RELU (D4).
+        verify(relectureRepository, never()).save(any(Relecture.class));
+        assertThat(exercice.getStatut()).isEqualTo(StatutExercice.DEPOSE);
+    }
+
+    @Test
+    @DisplayName("RG14 (EF11) : la clôture prime sur « déjà rendue », la correction (EF7) étant gelée elle aussi")
+    void la_cloture_prime_sur_deja_rendue() {
+        Relecture dejaRendue = relectureAssignee();
+        dejaRendue.rendre(12, "Premier rendu.");
+        when(relectureRepository.findById(EXERCICE_ID + 100)).thenReturn(Optional.of(dejaRendue));
+        when(exerciceRepository.findById(EXERCICE_ID)).thenReturn(Optional.of(exercice()));
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(true)));
+
+        assertThatThrownBy(() -> relectureService.rendre(EXERCICE_ID + 100,
+                new SoumissionRelectureRequete(new BigDecimal("15"), COMMENTAIRE)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> assertThat(((ExceptionMetier) thrown).getCode())
+                        .isEqualTo(CodeErreur.SESSION_CLOTUREE));
+    }
+
     @Test
     @DisplayName("EF6/D4 : rendre la note fait passer l'exercice de EN_ATTENTE_RELECTURE à RELU")
     void l_exercice_passe_au_statut_relu() {
@@ -282,6 +331,7 @@ class RelectureServiceTest {
         exercice.attribuerRelecteur();
         when(relectureRepository.findById(EXERCICE_ID + 100)).thenReturn(Optional.of(relectureAssignee()));
         when(exerciceRepository.findById(EXERCICE_ID)).thenReturn(Optional.of(exercice));
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(false)));
 
         relectureService.rendre(EXERCICE_ID + 100,
                 new SoumissionRelectureRequete(new BigDecimal("15"), COMMENTAIRE));
@@ -394,5 +444,14 @@ class RelectureServiceTest {
         Exercice exercice = new Exercice(SESSION_ID, AUTEUR_ID, LIEN, StatutExercice.DEPOSE, LocalDateTime.now());
         ReflectionTestUtils.setField(exercice, "id", EXERCICE_ID);
         return exercice;
+    }
+
+    /** Session de l'exercice ; ouverte par défaut, la clôture étant le cas de l'EF11. */
+    private Session session(boolean cloturee) {
+        Session session = new Session("Cours EF6", "ABC234", 1L,
+                LocalDateTime.now(), LocalDateTime.now().plusMinutes(15));
+        ReflectionTestUtils.setField(session, "id", SESSION_ID);
+        ReflectionTestUtils.setField(session, "cloturee", cloturee);
+        return session;
     }
 }

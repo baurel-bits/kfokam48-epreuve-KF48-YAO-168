@@ -237,6 +237,45 @@ class RelectureControllerTest {
                 .andExpect(jsonPath("$.length()").value(0));
     }
 
+    // ---------- EF11 : la clôture gèle la notation (RG14) ----------
+
+    @Test
+    @DisplayName("RG14 (EF11) : après clôture de la session, rendre la note répond 409 SESSION_CLOTUREE")
+    void notation_refusee_apres_cloture() throws Exception {
+        Contexte contexte = preparerScenario();
+
+        mockMvc.perform(post("/api/sessions/{id}/cloture", contexte.sessionId()))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/relectures/{id}", contexte.relectureId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("note", 15, "commentaire", COMMENTAIRE))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SESSION_CLOTUREE"))
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andExpect(jsonPath("$.trace").doesNotExist());
+
+        // Rien n'a été écrit : la relecture reste en attente et l'exercice n'est pas
+        // passé à RELU (D4).
+        assertThat(statutDeLaRelecture(contexte.relectureId())).isEqualTo("EN_ATTENTE");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT statut FROM exercice WHERE id = ?", String.class, contexte.exerciceId()))
+                .isEqualTo("EN_ATTENTE_RELECTURE");
+    }
+
+    @Test
+    @DisplayName("EF11 : une relecture restée en attente à la clôture reste en attente, sans erreur")
+    void relecture_non_rendue_reste_en_attente() throws Exception {
+        Contexte contexte = preparerScenario();
+
+        mockMvc.perform(post("/api/sessions/{id}/cloture", contexte.sessionId()))
+                .andExpect(status().isOk());
+
+        // La clôture ne détruit ni ne transforme les relectures en cours (RG14).
+        assertThat(missionDe(listerMissionsEnAttente(RELECTEUR_ID), contexte.relectureId())).isNotNull();
+    }
+
     // ------------------------------------------------------------------
 
     private record Contexte(long sessionId, long exerciceId, long relectureId) {

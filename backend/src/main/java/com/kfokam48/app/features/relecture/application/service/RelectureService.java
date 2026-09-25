@@ -13,6 +13,8 @@ import com.kfokam48.app.features.relecture.application.dto.SoumissionRelectureRe
 import com.kfokam48.app.features.relecture.domain.entity.Relecture;
 import com.kfokam48.app.features.relecture.domain.entity.StatutRelecture;
 import com.kfokam48.app.features.relecture.domain.repository.RelectureRepository;
+import com.kfokam48.app.features.session.domain.entity.Session;
+import com.kfokam48.app.features.session.domain.repository.SessionRepository;
 import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.util.List;
@@ -47,14 +49,17 @@ public class RelectureService implements AssignateurRelecteur {
     private final RelectureRepository relectureRepository;
     private final PresenceRepository presenceRepository;
     private final ExerciceRepository exerciceRepository;
+    private final SessionRepository sessionRepository;
     private final SecureRandom aleatoire = new SecureRandom();
 
     public RelectureService(RelectureRepository relectureRepository,
                             PresenceRepository presenceRepository,
-                            ExerciceRepository exerciceRepository) {
+                            ExerciceRepository exerciceRepository,
+                            SessionRepository sessionRepository) {
         this.relectureRepository = relectureRepository;
         this.presenceRepository = presenceRepository;
         this.exerciceRepository = exerciceRepository;
+        this.sessionRepository = sessionRepository;
     }
 
     /**
@@ -120,6 +125,9 @@ public class RelectureService implements AssignateurRelecteur {
      *       sur la requête elle-même, comme le ferait la validation des DTO ;</li>
      *   <li>relecture inconnue → {@code 404} ;</li>
      *   <li>auto-relecture → {@code 403 AUTO_RELECTURE} (RG4) ;</li>
+     *   <li>session clôturée → {@code 409 SESSION_CLOTUREE} (RG14), contrôlé avant
+     *       « déjà rendue » : une session clôturée interdit aussi la correction de
+     *       l'EF7, renvoyer vers elle serait trompeur ;</li>
      *   <li>note déjà rendue → {@code 409 RELECTURE_DEJA_RENDUE} : la correction
      *       d'une note rendue est l'EF7, sous un autre chemin.</li>
      * </ol>
@@ -144,6 +152,21 @@ public class RelectureService implements AssignateurRelecteur {
                     "Un étudiant ne peut pas rendre une relecture de son propre exercice.");
         }
 
+        Exercice exercice = exerciceRepository.findById(relecture.getExerciceId())
+                .orElseThrow(() -> new ExceptionMetier(CodeErreur.EXERCICE_INCONNU, HttpStatus.NOT_FOUND,
+                        "L'exercice %d est introuvable.".formatted(relecture.getExerciceId())));
+
+        // RG14 : la clôture gèle toute notation de la session. Contrôlé avant
+        // « déjà rendue », car une session clôturée interdit aussi la correction
+        // de l'EF7 : renvoyer l'appelant vers elle serait trompeur.
+        Session session = sessionRepository.findById(exercice.getSessionId())
+                .orElseThrow(() -> new ExceptionMetier(CodeErreur.SESSION_INCONNUE, HttpStatus.NOT_FOUND,
+                        "La session %d est inconnue.".formatted(exercice.getSessionId())));
+        if (session.isCloturee()) {
+            throw new ExceptionMetier(CodeErreur.SESSION_CLOTUREE, HttpStatus.CONFLICT,
+                    "La session est clôturée : plus aucune note ne peut être créée ni corrigée.");
+        }
+
         if (relecture.getStatut() == StatutRelecture.RENDUE) {
             throw new ExceptionMetier(CodeErreur.RELECTURE_DEJA_RENDUE, HttpStatus.CONFLICT,
                     "Cette relecture a déjà été rendue.");
@@ -152,9 +175,6 @@ public class RelectureService implements AssignateurRelecteur {
         relecture.rendre(note, requete.commentaire());
         relectureRepository.save(relecture);
 
-        Exercice exercice = exerciceRepository.findById(relecture.getExerciceId())
-                .orElseThrow(() -> new ExceptionMetier(CodeErreur.EXERCICE_INCONNU, HttpStatus.NOT_FOUND,
-                        "L'exercice %d est introuvable.".formatted(relecture.getExerciceId())));
         exercice.marquerRelu();
 
         return new RelectureRendueReponse(relecture.getId(), exercice.getId(), relecture.getNote(),

@@ -4,6 +4,7 @@ import com.kfokam48.app.common.error.CodeErreur;
 import com.kfokam48.app.common.exception.ExceptionMetier;
 import com.kfokam48.app.features.promotion.domain.repository.PromotionRepository;
 import com.kfokam48.app.features.session.application.dto.CreationSessionRequete;
+import com.kfokam48.app.features.session.application.dto.SessionClotureeReponse;
 import com.kfokam48.app.features.session.application.dto.SessionOuverteReponse;
 import com.kfokam48.app.features.session.domain.entity.Session;
 import com.kfokam48.app.features.session.domain.repository.SessionRepository;
@@ -68,6 +69,31 @@ public class SessionService {
         return new SessionOuverteReponse(enregistree.getId(), enregistree.getCode(),
                 enregistree.getOuvertureAt().atOffset(ouvertureAt.getOffset()),
                 enregistree.getExpirationAt().atOffset(expirationAt.getOffset()));
+    }
+
+    /**
+     * Clôture une session (EF11, RG14) : les dépôts et les notes de cette session
+     * sont ensuite refusés, sans que les données déjà enregistrées soient
+     * touchées. Les relectures encore en attente le restent définitivement.
+     *
+     * <p>Le contrat ne déclare que {@code 200} et {@code 404} sur cette opération :
+     * clôturer une session <strong>déjà</strong> clôturée répond donc {@code 200}
+     * sans rien réécrire, plutôt qu'un {@code 409} qui n'y figure pas.
+     *
+     * @throws ExceptionMetier {@code 404 SESSION_INCONNUE} si la session n'existe pas.
+     */
+    @Transactional
+    public SessionClotureeReponse cloturer(Long sessionId) {
+        Session session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new ExceptionMetier(CodeErreur.SESSION_INCONNUE, HttpStatus.NOT_FOUND,
+                        "La session %d est inconnue.".formatted(sessionId)));
+
+        if (!session.isCloturee()) {
+            session.cloturer();
+            sessionRepository.save(session);
+        }
+
+        return new SessionClotureeReponse(session.getId(), session.isCloturee());
     }
 
     /** Tire un code de présence, en régénérant tant qu'il est déjà attribué (uk_session_code). */

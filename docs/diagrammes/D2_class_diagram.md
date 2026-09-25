@@ -158,7 +158,7 @@ classDiagram
 | **RG11** remplacement tant que non relu | `exercice.lien` + `PUT /api/exercices/{id}/lien` |
 | **RG12** présence manuelle distinguable | `presence.source = FORMATEUR` |
 | **RG13** pool recalculé à l'assignation | **non structurel** : règle de service au moment du dépôt ; aucun champ de snapshot |
-| **RG14** clôture gèle dépôts/notes | `session.cloturee` + `POST /api/sessions/{id}/cloture` |
+| **RG14** clôture gèle dépôts/notes | `session.cloturee` + `POST /api/sessions/{id}/cloture` ; le contrôle est porté par les services de dépôt (`POST /api/exercices`) et de notation (`POST /api/relectures/{id}`), et non par une contrainte SQL — PostgreSQL ne l'exprime pas simplement (règle applicative assumée) |
 
 ## Contraintes à porter dans les migrations Flyway
 
