@@ -8,7 +8,7 @@ import com.kfokam48.app.features.session.application.dto.SessionOuverteReponse;
 import com.kfokam48.app.features.session.domain.entity.Session;
 import com.kfokam48.app.features.session.domain.repository.SessionRepository;
 import java.security.SecureRandom;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -53,16 +53,21 @@ public class SessionService {
                     "La promotion %d est inconnue.".formatted(requete.promotionId()));
         }
 
-        LocalDateTime ouvertureAt = LocalDateTime.now();
+        OffsetDateTime ouvertureAt = OffsetDateTime.now();
         // RG1 : le code expire 15 minutes après l'ouverture de la session.
-        LocalDateTime expirationAt = ouvertureAt.plusMinutes(validiteCodeMinutes);
+        OffsetDateTime expirationAt = ouvertureAt.plusMinutes(validiteCodeMinutes);
 
+        // La base stocke des TIMESTAMP sans fuseau (cf. V1 et D2) : on n'y conserve que
+        // le mur d'horloge du serveur.
         Session session = new Session(requete.titre().trim(), genererCodeUnique(), requete.promotionId(),
-                ouvertureAt, expirationAt);
+                ouvertureAt.toLocalDateTime(), expirationAt.toLocalDateTime());
         Session enregistree = sessionRepository.save(session);
 
+        // Le contrat impose `format: date-time` (RFC 3339) : le décalage horaire, absent
+        // du stockage, est réattaché aux instants relus juste avant de les exposer.
         return new SessionOuverteReponse(enregistree.getId(), enregistree.getCode(),
-                enregistree.getOuvertureAt(), enregistree.getExpirationAt());
+                enregistree.getOuvertureAt().atOffset(ouvertureAt.getOffset()),
+                enregistree.getExpirationAt().atOffset(expirationAt.getOffset()));
     }
 
     /** Tire un code de présence, en régénérant tant qu'il est déjà attribué (uk_session_code). */

@@ -14,6 +14,11 @@ export const CODES_ERREUR = {
   PROMOTION_INCONNUE: "PROMOTION_INCONNUE",
   DEMANDE_INVALIDE: "DEMANDE_INVALIDE",
   ERREUR_INTERNE: "ERREUR_INTERNE",
+  ETUDIANT_INCONNU: "ETUDIANT_INCONNU",
+  CODE_INCONNU: "CODE_INCONNU",
+  CODE_EXPIRE: "CODE_EXPIRE",
+  DEJA_PRESENT: "DEJA_PRESENT",
+  TROP_DE_TENTATIVES: "TROP_DE_TENTATIVES",
   SERVEUR_INJOIGNABLE: "SERVEUR_INJOIGNABLE",
   DELAI_DEPASSE: "DELAI_DEPASSE",
 } as const;
@@ -50,10 +55,38 @@ export interface CreationSessionRequete {
   promotionId: number;
 }
 
-/** Réponse 201 de POST /api/sessions (EF1). Les dates sont des chaînes ISO-8601. */
+/**
+ * Réponse 201 de POST /api/sessions (EF1).
+ * Les deux instants sont du RFC 3339 avec décalage (`2026-09-25T13:49:57.12+01:00`),
+ * conformément au `format: date-time` du contrat.
+ */
 export interface SessionOuverteReponse {
   id: number;
   code: string;
   ouvertureAt: string;
   expirationAt: string;
+}
+
+/** Origine d'une présence : jamais choisie par le client (D2). */
+export type SourcePresence = "ETUDIANT" | "FORMATEUR";
+
+/** Élément de GET /api/promotions/{promotionId}/etudiants (prérequis Q1). */
+export interface EtudiantResume {
+  id: number;
+  prenom: string;
+  nom: string;
+}
+
+/** Corps de POST /api/presences (EF2) — noms de champs imposés par le contrat. */
+export interface MarquagePresenceRequete {
+  code: string;
+  etudiantId: number;
+}
+
+/** Réponse 201 de POST /api/presences (EF2). */
+export interface PresenceReponse {
+  id: number;
+  sessionId: number;
+  etudiantId: number;
+  source: SourcePresence;
 }

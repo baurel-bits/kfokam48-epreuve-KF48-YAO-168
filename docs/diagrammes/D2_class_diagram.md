@@ -79,7 +79,7 @@ classDiagram
 
     class TentativeSaisie {
         +Long id PK
-        +Long sessionId FK NN
+        +Long sessionId FK NULL
         +Long etudiantId FK NN
         +Integer echecs NN
         +LocalDateTime bloqueJusqua NULL
@@ -147,7 +147,7 @@ classDiagram
 |---|---|
 | **RG1** expiration 15 min | `session.expirationAt` (calcul à l'ouverture) |
 | **RG2** code invalide/expiré | `session.code` + erreurs contrat `CODE_INCONNU`/`CODE_EXPIRE`/`DEJA_PRESENT` (D3) |
-| **RG3** 5 échecs / 2 min | `tentative_saisie (session_id, etudiant_id, echecs, bloque_jusqua)` — incrément visible en D3 |
+| **RG3** 5 échecs / 2 min | `tentative_saisie (session_id NULL, etudiant_id, echecs, bloque_jusqua)` — **deux portées** : couple (étudiant, session) pour un code expiré, étudiant seul (`session_id IS NULL`) pour un code inconnu, non rattachable à une session (`V3`) ; incrément visible en D3 |
 | **RG4** pas d'auto-relecture | `relecture.auteurId` + `CHECK (relecteur_id <> auteur_id)` |
 | **RG5** un seul relecteur | `relecture.exerciceId UNIQUE` + cardinalité `Exercice 1 — 0..1 Relecture` |
 | **RG6** anonymat du relecteur | **non structurel** : choix de DTO sur `GET /api/etudiants/{id}/relectures-recues` (ne renvoie pas `relecteurId`) |
@@ -169,7 +169,7 @@ classDiagram
   - `exercice UNIQUE (session_id, etudiant_id)` → 409 `EXERCICE_DEJA_DEPOSE`
   - `exercice UNIQUE (id, etudiant_id)` → **support de la FK composite de RG4**
   - `relecture UNIQUE (exercice_id)` → RG5 (un seul relecteur)
-  - `tentative_saisie UNIQUE (session_id, etudiant_id)` → RG3
+  - `tentative_saisie UNIQUE (session_id, etudiant_id)` → RG3 (les lignes `session_id IS NULL`, compteur par étudiant, ne sont pas couvertes par cet `UNIQUE` : en SQL les `NULL` sont distincts, leur unicité est donc garantie par le service — voir `V3`)
 - **Contrainte d'auto-relecture (RG4)** — désormais **exprimable en SQL** :
   ```sql
   ALTER TABLE relecture

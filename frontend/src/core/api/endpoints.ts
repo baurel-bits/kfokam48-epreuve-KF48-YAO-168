@@ -10,4 +10,18 @@ export const ENDPOINTS = {
   SESSIONS: {
     OUVRIR: "/api/sessions",
   },
+
+  /** EF2 — l'étudiant marque sa présence avec le code dicté par le formateur. */
+  PRESENCES: {
+    MARQUER: "/api/presences",
+  },
+
+  /**
+   * Prérequis Q1 — l'étudiant est choisi dans une liste, le sujet excluant
+   * l'authentification. Alimente les écrans étudiant (EF2, EF3) et formateur
+   * (EF9, EF10).
+   */
+  PROMOTIONS: {
+    ETUDIANTS: (promotionId: number) => `/api/promotions/${promotionId}/etudiants`,
+  },
 } as const;
