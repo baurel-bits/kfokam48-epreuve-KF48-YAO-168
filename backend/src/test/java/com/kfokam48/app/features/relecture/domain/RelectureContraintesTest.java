@@ -74,6 +74,16 @@ class RelectureContraintesTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
+    @Test
+    @DisplayName("RG7 : la base refuse une note hors 0-20, second filet après la validation (EF6)")
+    void note_hors_bornes_refusee_par_la_base() {
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                INSERT INTO relecture (exercice_id, relecteur_id, auteur_id, note, commentaire, statut)
+                VALUES (?, 2, ?, 21, 'note hors bornes', 'RENDUE')
+                """, exerciceId, AUTEUR_ID))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
     private void insererRelecture(Long exerciceId, Long relecteurId, Long auteurId) {
         jdbcTemplate.update("""
                 INSERT INTO relecture (exercice_id, relecteur_id, auteur_id, statut)

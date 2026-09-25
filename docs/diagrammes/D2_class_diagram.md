@@ -205,3 +205,5 @@ classDiagram
 | `POST /api/presences/manuelles` | EF10 | `presence` |
 
 > **EF5** (assignation automatique d'un relecteur) n'a volontairement **aucun endpoint** : c'est un effet de bord du dépôt d'exercice (`POST /api/exercices`), conformément à RG5/RG13.
+
+> **EF6** (note et commentaire rendus) écrit **deux** transitions dans la même transaction : `relecture.statut` passe de `EN_ATTENTE` à **`RENDUE`** et `exercice.statut` de `EN_ATTENTE_RELECTURE` à **`RELU`**. Ce sont deux énumérations distinctes (`StatutRelecture` et `StatutExercice`, enchaînées par D4) : `RENDUE` qualifie la relecture, `RELU` l'exercice. Une seconde note sur la même relecture est refusée en `409 RELECTURE_DEJA_RENDUE` ; sa correction relève de RG8 (`correction_relecture`, EF7).

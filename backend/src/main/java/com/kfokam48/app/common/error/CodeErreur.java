@@ -51,6 +51,19 @@ public enum CodeErreur {
     /** EF5 (RG6) — l'appelant n'est pas le relecteur assigné (contrat : {@code 403}). */
     APPELANT_NON_AUTORISE,
 
+    /** EF6 (RG7) — la note n'est pas un entier compris entre 0 et 20 (contrat : {@code 400}). */
+    NOTE_INVALIDE,
+
+    /**
+     * EF6 (RG4) — la relecture porterait sur l'exercice de son propre relecteur.
+     * Garde-fou : l'assignation écarte déjà l'auteur, et
+     * {@code ck_relecture_pas_auto_relecture} l'interdit en base.
+     */
+    AUTO_RELECTURE,
+
+    /** EF6 — une note a déjà été rendue ; sa correction relève de l'EF7 (contrat : {@code 409}). */
+    RELECTURE_DEJA_RENDUE,
+
     /** Requête HTTP refusée par Spring MVC (404, 405, ...). */
     DEMANDE_INVALIDE,
 

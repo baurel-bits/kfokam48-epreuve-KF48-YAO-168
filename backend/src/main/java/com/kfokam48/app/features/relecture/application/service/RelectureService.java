@@ -7,11 +7,18 @@ import com.kfokam48.app.features.exercice.domain.repository.ExerciceRepository;
 import com.kfokam48.app.features.presence.domain.entity.Presence;
 import com.kfokam48.app.features.presence.domain.repository.PresenceRepository;
 import com.kfokam48.app.features.relecture.application.dto.MissionRelecteurReponse;
+import com.kfokam48.app.features.relecture.application.dto.RelectureRendueReponse;
+import com.kfokam48.app.features.relecture.application.dto.SoumissionRelectureRequete;
 import com.kfokam48.app.features.relecture.domain.entity.Relecture;
+import com.kfokam48.app.features.relecture.domain.entity.StatutRelecture;
 import com.kfokam48.app.features.relecture.domain.repository.RelectureRepository;
+import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +38,10 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class RelectureService implements AssignateurRelecteur {
+
+    /** Bornes de RG7, reprises du {@code CHECK (note BETWEEN 0 AND 20)} de V1. */
+    private static final BigDecimal NOTE_MINIMALE = BigDecimal.ZERO;
+    private static final BigDecimal NOTE_MAXIMALE = new BigDecimal("20");
 
     private final RelectureRepository relectureRepository;
     private final PresenceRepository presenceRepository;
@@ -97,5 +108,101 @@ public class RelectureService implements AssignateurRelecteur {
 
         return new MissionRelecteurReponse(relecture.getId(), exercice.getId(), exercice.getSessionId(),
                 exercice.getLien(), relecture.getStatut());
+    }
+
+    /**
+     * Rend la note et le commentaire d'une relecture assignée (EF6).
+     *
+     * <p>Ordre des contrôles, dicté par la nature de chaque refus :
+     * <ol>
+     *   <li>forme de la note → {@code 400 NOTE_INVALIDE} (RG7) : le refus porte
+     *       sur la requête elle-même, comme le ferait la validation des DTO ;</li>
+     *   <li>relecture inconnue → {@code 404} ;</li>
+     *   <li>auto-relecture → {@code 403 AUTO_RELECTURE} (RG4) ;</li>
+     *   <li>note déjà rendue → {@code 409 RELECTURE_DEJA_RENDUE} : la correction
+     *       d'une note rendue est l'EF7, sous un autre chemin.</li>
+     * </ol>
+     *
+     * <p>Dans la même transaction, l'exercice relu passe au statut {@code RELU}
+     * (D4) : une note enregistrée et un exercice resté « en attente » seraient
+     * incohérents.
+     */
+    @Transactional
+    public RelectureRendueReponse rendre(Long relectureId, SoumissionRelectureRequete requete) {
+        int note = validerNote(requete.note());
+
+        Relecture relecture = relectureRepository.findById(relectureId)
+                .orElseThrow(() -> new ExceptionMetier(CodeErreur.RELECTURE_INCONNUE, HttpStatus.NOT_FOUND,
+                        "La relecture %d est introuvable.".formatted(relectureId)));
+
+        // RG4, dernier filet : l'assignation écarte déjà l'auteur du pool et
+        // ck_relecture_pas_auto_relecture interdit la ligne en base. Ce contrôle
+        // couvre le cas d'une donnée introduite hors application.
+        if (relecture.getAuteurId().equals(relecture.getRelecteurId())) {
+            throw new ExceptionMetier(CodeErreur.AUTO_RELECTURE, HttpStatus.FORBIDDEN,
+                    "Un étudiant ne peut pas rendre une relecture de son propre exercice.");
+        }
+
+        if (relecture.getStatut() == StatutRelecture.RENDUE) {
+            throw new ExceptionMetier(CodeErreur.RELECTURE_DEJA_RENDUE, HttpStatus.CONFLICT,
+                    "Cette relecture a déjà été rendue.");
+        }
+
+        relecture.rendre(note, requete.commentaire());
+        relectureRepository.save(relecture);
+
+        Exercice exercice = exerciceRepository.findById(relecture.getExerciceId())
+                .orElseThrow(() -> new ExceptionMetier(CodeErreur.EXERCICE_INCONNU, HttpStatus.NOT_FOUND,
+                        "L'exercice %d est introuvable.".formatted(relecture.getExerciceId())));
+        exercice.marquerRelu();
+
+        return new RelectureRendueReponse(relecture.getId(), exercice.getId(), relecture.getNote(),
+                relecture.getCommentaire(), relecture.getStatut());
+    }
+
+    /**
+     * Missions encore à rendre de ce relecteur (EF6), dans l'ordre d'assignation.
+     *
+     * <p>Seules les relectures au statut {@code EN_ATTENTE} sont renvoyées, ce que
+     * dit le nom de l'opération ; le statut figure malgré tout dans la réponse,
+     * conformément au schéma du contrat.
+     */
+    @Transactional(readOnly = true)
+    public List<MissionRelecteurReponse> listerMissionsEnAttente(Long relecteurId) {
+        List<Relecture> relectures = relectureRepository
+                .findByRelecteurIdAndStatutOrderByIdAsc(relecteurId, StatutRelecture.EN_ATTENTE);
+        if (relectures.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, Exercice> exercices = exerciceRepository
+                .findAllById(relectures.stream().map(Relecture::getExerciceId).toList())
+                .stream()
+                .collect(Collectors.toMap(Exercice::getId, Function.identity()));
+
+        return relectures.stream()
+                .filter(relecture -> exercices.containsKey(relecture.getExerciceId()))
+                .map(relecture -> {
+                    Exercice exercice = exercices.get(relecture.getExerciceId());
+                    return new MissionRelecteurReponse(relecture.getId(), exercice.getId(),
+                            exercice.getSessionId(), exercice.getLien(), relecture.getStatut());
+                })
+                .toList();
+    }
+
+    /**
+     * RG7 : la note doit être un entier de 0 à 20. Une valeur absente, décimale
+     * ({@code 15.5}) ou hors bornes ({@code -1}, {@code 21}) est refusée en
+     * {@code 400 NOTE_INVALIDE}, comme le prévoit le contrat.
+     */
+    private int validerNote(BigDecimal note) {
+        if (note == null
+                || note.stripTrailingZeros().scale() > 0
+                || note.compareTo(NOTE_MINIMALE) < 0
+                || note.compareTo(NOTE_MAXIMALE) > 0) {
+            throw new ExceptionMetier(CodeErreur.NOTE_INVALIDE, HttpStatus.BAD_REQUEST,
+                    "La note doit être un entier compris entre 0 et 20.");
+        }
+        return note.intValueExact();
     }
 }

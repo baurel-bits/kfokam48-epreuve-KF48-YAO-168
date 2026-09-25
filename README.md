@@ -57,12 +57,14 @@ npm run dev
 L'URL du backend se règle par `NEXT_PUBLIC_API_URL` (défaut `http://localhost:8080`,
 voir `frontend/.env.example`).
 
-L'application s'ouvre sur la page d'accueil `/`, qui mène aux deux écrans livrés :
+L'application s'ouvre sur la page d'accueil `/`, qui mène aux trois écrans exigés
+par F2 :
 
 | Écran | Chemin | Contenu |
 |---|---|---|
 | Formateur | `/formateur` | EF1 — ouvrir une session, obtenir le code de présence |
 | Étudiant | `/etudiant` | EF2/EF3 — choisir son nom, marquer sa présence, déposer son exercice |
+| Relecteur | `/relecteur` | EF6 — retrouver l'exercice confié, rendre sa note et son commentaire |
 
 ## Vérifications
 
@@ -78,9 +80,11 @@ node scripts/parcours-navigateur.mjs
 ```
 
 `scripts/parcours-navigateur.mjs` pilote Chrome en headless par le DevTools
-Protocol : il clique réellement sur les formulaires et vérifie ce que les tests
-MockMvc ne peuvent pas voir — hydratation React, appel API depuis l'origine du
-navigateur (CORS), affichage des erreurs du contrat, mise en page mobile (ENF1).
+Protocol et déroule le parcours complet — accueil → formateur → étudiant →
+relecteur — en cliquant réellement sur les formulaires. Il vérifie ce que les
+tests MockMvc ne peuvent pas voir : hydratation React, appels API depuis
+l'origine du navigateur (CORS), affichage des erreurs du contrat, mise en page
+mobile (ENF1) et non-divulgation de l'identité de l'auteur au relecteur (RG6).
 Il se termine par un code de sortie non nul en cas d'échec.
 
 ## Organisation
@@ -103,4 +107,5 @@ scripts/                Outillage (backlog GitHub, parcours navigateur)
   relecteur » (RG6) repose donc sur la comparaison d'identifiants, et non sur un
   véritable contrôle d'accès (voir `docs/CAHIER_DES_CHARGES.md`, section 11).
 - **Aucun envoi d'e-mail** : hors périmètre du sujet.
-- L'écran **relecteur** (EF6/EF8) n'est pas encore livré (issues #12 et #13).
+- L'écran **« notes reçues »** (EF8, issue #13) n'est pas encore livré : la note
+  rendue par un relecteur n'est pas encore consultable côté étudiant.

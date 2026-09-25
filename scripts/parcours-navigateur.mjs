@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /**
- * Parcours navigateur de bout en bout : accueil → formateur → étudiant.
+ * Parcours navigateur de bout en bout :
+ * accueil → formateur → étudiant (présence + dépôt) → relecteur (note rendue).
  *
  * Complète les tests de `backend/` (MockMvc, H2) sur ce qu'ils ne peuvent pas
  * voir : hydratation React, clics réels sur les formulaires contrôlés, appels
- * API depuis l'origine du navigateur (CORS), affichage des erreurs du contrat
- * et mise en page mobile (ENF1).
+ * API depuis l'origine du navigateur (CORS), affichage des erreurs du contrat,
+ * mise en page mobile (ENF1) et non-divulgation de l'identité de l'auteur au
+ * relecteur (RG6).
  *
  * Le script lance lui-même Chrome en mode headless et pilote l'onglet par le
  * DevTools Protocol. Il n'installe rien : `WebSocket` et `fetch` sont fournis
@@ -237,12 +239,18 @@ class Cdp {
   }
 }
 
-/** Renseigne un champ contrôlé par React (setter natif + événement input). */
+/**
+ * Renseigne un champ contrôlé par React : setter natif du prototype réellement
+ * concerné (un textarea n'a pas le setter d'un input) puis événement `input`.
+ */
 const REMPLIR = `
 function remplir(selecteur, valeur) {
   const champ = document.querySelector(selecteur);
   if (!champ) return false;
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+  const prototype = champ.tagName === "TEXTAREA"
+    ? window.HTMLTextAreaElement.prototype
+    : window.HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(prototype, "value").set;
   setter.call(champ, valeur);
   champ.dispatchEvent(new Event("input", { bubbles: true }));
   return true;
@@ -312,9 +320,9 @@ async function deroulerLeParcours(port) {
   const accueil = await cdp.evaluer("document.body.innerText");
   verifier("La racine sert une page (pas de 404)",
     accueil.includes("Espace formateur") && accueil.includes("Espace étudiant"));
-  verifier("L'espace relecteur est annoncé sans mener à une page inexistante",
-    accueil.includes("Espace relecteur")
-      && (await cdp.evaluer(`document.querySelectorAll('a[href="/relecteur"]').length === 0`)));
+  verifier("L'accueil mène aux trois espaces (F2)",
+    await cdp.evaluer(`["/formateur", "/etudiant", "/relecteur"]
+      .every((chemin) => document.querySelector('a[href="' + chemin + '"]') !== null)`));
   verifier("Un lien mène à l'espace formateur",
     await cdp.evaluer(`document.querySelector('a[href="/formateur"]') !== null`));
 
@@ -362,6 +370,8 @@ async function deroulerLeParcours(port) {
 
   // 3b. Marquage de présence avec le code obtenu à l'étape 2 (EF2).
   await cdp.evaluer(`document.querySelectorAll("ul li button")[0].click()`);
+  // Retenu pour vérifier plus loin que l'écran relecteur ne divulgue pas l'auteur (RG6).
+  const nomRelecteur = await cdp.evaluer(`document.querySelectorAll("ul li button")[0].innerText.trim()`);
   await cdp.evaluer(`${REMPLIR}; remplir("#code", ${JSON.stringify(code)})`);
   await cdp.evaluer(cliquerSur('form:nth-of-type(2) button[type="submit"]'));
   let presenceOk = true;
@@ -375,7 +385,30 @@ async function deroulerLeParcours(port) {
       ? await cdp.evaluer(`document.body.innerText.match(/Session n°\\d+ — source : \\w+/)?.[0] ?? ""`)
       : await cdp.evaluer("document.body.innerText.slice(0, 200)"));
 
-  // 3c. Dépôt de l'exercice (EF3) : la session vient du serveur, sans ressaisie.
+  // 3c. Un second étudiant marque sa présence : sans lui, le pool de relecteurs
+  // serait vide (l'auteur est toujours écarté, RG4) et EF6 ne serait pas atteignable.
+  await cdp.envoyer("Page.navigate", { url: url("/etudiant") });
+  await cdp.attendre(`document.querySelector("#promotionId") !== null`, "écran étudiant rechargé");
+  await attendreHydratation(cdp);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(1) button[type="submit"]'));
+  await cdp.attendre(`document.querySelectorAll("ul li button").length > 1`, "liste des étudiants", 8000);
+  await cdp.evaluer(`document.querySelectorAll("ul li button")[1].click()`);
+  const nomAuteur = await cdp.evaluer(`document.querySelectorAll("ul li button")[1].innerText.trim()`);
+  await cdp.evaluer(`${REMPLIR}; remplir("#code", ${JSON.stringify(code)})`);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(2) button[type="submit"]'));
+
+  let secondePresence = true;
+  try {
+    await cdp.attendre(`document.body.innerText.includes("Présence enregistrée")`, "seconde présence", 8000);
+  } catch {
+    secondePresence = false;
+  }
+  verifier("Un second étudiant marque sa présence (le pool de relecteurs n'est pas vide)", secondePresence,
+    secondePresence
+      ? await cdp.evaluer(`document.body.innerText.match(/Session n°\\d+ — source : \\w+/)?.[0] ?? ""`)
+      : await cdp.evaluer("document.body.innerText.slice(0, 200)"));
+
+  // 3d. Dépôt de l'exercice (EF3) : la session vient du serveur, sans ressaisie.
   verifier("L'identifiant de session est repris du serveur après la présence",
     (await cdp.evaluer(`document.querySelector("#sessionId").value`)) !== "");
   await cdp.evaluer(`${REMPLIR}; remplir("#lien", "https://exemple.org/parcours-navigateur.pdf")`);
@@ -391,13 +424,69 @@ async function deroulerLeParcours(port) {
     `document.body.innerText.match(/Exercice n°\\d+ — statut : \\w+/)?.[0] ?? document.body.innerText.slice(0, 200)`,
   );
   verifier("Le dépôt de l'exercice aboutit depuis le navigateur", depotOk, detailDepot);
-  verifier("Le statut renvoyé appartient au cycle de vie du contrat (D4)",
-    /statut : (DEPOSE|EN_ATTENTE_RELECTURE|RELU)/.test(detailDepot), detailDepot);
+  // L'auteur dépose, un autre étudiant est présent : la relecture lui est confiée (EF5).
+  verifier("EF5 : l'exercice passe en EN_ATTENTE_RELECTURE, un relecteur est assigné",
+    /statut : EN_ATTENTE_RELECTURE/.test(detailDepot), detailDepot);
 
-  // ---------- 4. Chemin d'erreur et affichage mobile ----------
-  console.log("\n4. Chemin d'erreur et affichage mobile");
+  // ---------- 4. Relecteur : rendre sa note (EF6) ----------
+  console.log("\n4. Relecteur (/relecteur)");
+  await cdp.envoyer("Page.navigate", { url: url("/") });
+  await cdp.attendre(`document.querySelector('a[href="/relecteur"]') !== null`, "accueil affiché");
+  await cdp.evaluer(cliquerSur('a[href="/relecteur"]'));
+  await cdp.attendre(`location.pathname === "/relecteur"`, "navigation vers /relecteur");
+  await cdp.attendre(`document.querySelector("#promotionId") !== null`, "formulaire relecteur rendu");
+  await attendreHydratation(cdp);
+
+  await cdp.evaluer(`${REMPLIR}; remplir("#promotionId", "1")`);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(1) button[type="submit"]'));
+  await cdp.attendre(`document.querySelectorAll("ul li button").length > 0`, "liste des étudiants (relecteur)", 8000);
+  // Le premier étudiant de la liste est l'autre présent : c'est le relecteur désigné.
+  await cdp.evaluer(`document.querySelectorAll("ul li button")[0].click()`);
+
+  let missionVisible = true;
+  try {
+    await cdp.attendre(`document.body.innerText.includes("EN_ATTENTE")`, "mission assignée affichée", 8000);
+  } catch {
+    missionVisible = false;
+  }
+  verifier("Le relecteur retrouve l'exercice qui lui est confié", missionVisible,
+    await cdp.evaluer(`document.body.innerText.match(/Exercice n°\\d+ — session n°\\d+[\\s\\S]{0,20}/)?.[0]?.replace(/\\s+/g, " ") ?? document.body.innerText.slice(0, 200)`));
+
+  // RG6 : la mission décrit l'exercice, jamais son auteur. La liste des
+  // étudiants (« Qui êtes-vous ? ») est légitime, elle n'est pas concernée.
+  const contenuMission = await cdp.evaluer(
+    `document.querySelector('ul[aria-label="Exercices à relire"]')?.innerText ?? "(aucune mission)"`,
+  );
+  verifier("La mission ne révèle pas l'identité de l'auteur (RG6)",
+    contenuMission.includes("Exercice n°") && !contenuMission.includes(nomAuteur),
+    `${contenuMission.split(String.fromCharCode(10)).join(" ")} · auteur=${nomAuteur} · relecteur=${nomRelecteur}`);
+
+  await cdp.evaluer(`[...document.querySelectorAll("ul li button")].find((b) => b.textContent.includes("Exercice n°")).click()`);
+  await cdp.evaluer(`${REMPLIR}; remplir("#note", "15")`);
+  await cdp.evaluer(`${REMPLIR}; remplir("#commentaire", "Travail clair, conclusion à préciser.")`);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(2) button[type="submit"]'));
+
+  let rendueOk = true;
+  try {
+    await cdp.attendre(`document.body.innerText.includes("Relecture rendue")`, "confirmation du rendu", 8000);
+  } catch {
+    rendueOk = false;
+  }
+  const detailRendu = await cdp.evaluer(
+    `document.body.innerText.match(/Exercice n°\\d+ — note \\d+\\/20 — statut \\w+/)?.[0] ?? document.body.innerText.slice(0, 200)`,
+  );
+  verifier("Le relecteur rend sa note et son commentaire", rendueOk, detailRendu);
+  verifier("Le statut passé par le serveur pour la relecture est RENDUE", /statut RENDUE/.test(detailRendu), detailRendu);
+  verifier("La mission quitte la liste des relectures à rendre",
+    await cdp.evaluer(`document.body.innerText.includes("Aucun exercice ne vous est confié")`));
+
+  // ---------- 5. Chemin d'erreur et affichage mobile ----------
+  console.log("\n5. Chemin d'erreur et affichage mobile");
 
   // Un code inconnu doit afficher l'erreur du serveur, pas un écran cassé.
+  await cdp.envoyer("Page.navigate", { url: url("/etudiant") });
+  await cdp.attendre(`document.querySelector("#code") !== null`, "écran étudiant affiché");
+  await attendreHydratation(cdp);
   await cdp.evaluer(cliquerSur('form:nth-of-type(1) button[type="submit"]'));
   await cdp.attendre(`document.querySelectorAll("ul li button").length > 0`, "liste des étudiants rechargée", 8000);
   await cdp.evaluer(`document.querySelectorAll("ul li button")[0].click()`);
@@ -426,8 +515,8 @@ async function deroulerLeParcours(port) {
   verifier("Aucun débordement horizontal sur 390 px de large (ENF1)", debordement <= 0, `débordement=${debordement}px`);
   await cdp.envoyer("Emulation.clearDeviceMetricsOverride");
 
-  // ---------- 5. Hygiène du navigateur ----------
-  console.log("\n5. Console et réseau");
+  // ---------- 6. Hygiène du navigateur ----------
+  console.log("\n6. Console et réseau");
   verifier("Aucune exception JavaScript", exceptions.length === 0, exceptions.slice(0, 3).join(" | "));
   verifier("Aucune erreur console", erreursConsole.length === 0, erreursConsole.slice(0, 3).join(" | "));
 

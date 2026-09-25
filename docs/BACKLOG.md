@@ -117,9 +117,10 @@ Critères d'acceptation :
 **Réf.** EF6 · Règles RG7, RG4 · **Priorité** Must · **Estimation** 2h
 
 **Critères d'acceptation :**
-- Quand le relecteur envoie une note entière entre 0 et 20 et un commentaire pour une relecture qui lui est assignée, alors la relecture passe au statut `RELU` et l'API répond `200`.
+- Quand le relecteur envoie une note entière entre 0 et 20 et un commentaire pour une relecture qui lui est assignée, alors la relecture passe au statut `RENDUE`, l'exercice au statut `RELU` (D4) et l'API répond `200`.
 - Quand la note est hors 0–20 ou non entière, alors l'API répond `400 NOTE_INVALIDE`.
 - Quand la relecture visée concerne son propre exercice, alors l'API répond `403 AUTO_RELECTURE`.
+- Quand une note a déjà été rendue pour cette relecture, alors l'API répond `409 RELECTURE_DEJA_RENDUE` (la correction relève de l'EF7).
 
 **Endpoints du contrat :** `POST /api/relectures/{id}` · `GET /api/relecteurs/{etudiantId}/relectures-en-attente` · `GET /api/exercices/{exerciceId}/relecteur`
 

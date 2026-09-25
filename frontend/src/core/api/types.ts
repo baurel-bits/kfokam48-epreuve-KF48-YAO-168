@@ -7,7 +7,11 @@ export interface ErreurApi {
   message: string;
 }
 
-/** Codes que l'écran de l'EF1 peut recevoir (contrat + incidents réseau). */
+/**
+ * Codes d'erreur que les écrans peuvent afficher : ceux du contrat pour chaque
+ * opération, plus les incidents réseau normalisés par la couche d'appel.
+ * Ils servent à l'affichage, jamais à décider d'une règle métier (F3).
+ */
 export const CODES_ERREUR = {
   VALIDATION_INVALIDE: "VALIDATION_INVALIDE",
   REQUETE_ILLISIBLE: "REQUETE_ILLISIBLE",
@@ -23,6 +27,11 @@ export const CODES_ERREUR = {
   LIEN_INVALIDE: "LIEN_INVALIDE",
   EXERCICE_DEJA_DEPOSE: "EXERCICE_DEJA_DEPOSE",
   SESSION_CLOTUREE: "SESSION_CLOTUREE",
+  RELECTURE_INCONNUE: "RELECTURE_INCONNUE",
+  APPELANT_NON_AUTORISE: "APPELANT_NON_AUTORISE",
+  NOTE_INVALIDE: "NOTE_INVALIDE",
+  AUTO_RELECTURE: "AUTO_RELECTURE",
+  RELECTURE_DEJA_RENDUE: "RELECTURE_DEJA_RENDUE",
   SERVEUR_INJOIGNABLE: "SERVEUR_INJOIGNABLE",
   DELAI_DEPASSE: "DELAI_DEPASSE",
 } as const;
@@ -109,4 +118,38 @@ export interface DepotExerciceRequete {
 export interface ExerciceDeposeReponse {
   id: number;
   statut: StatutExercice;
+}
+
+/**
+ * État d'une relecture (D2) : `EN_ATTENTE` tant que la note n'est pas rendue,
+ * `RENDUE` ensuite (EF6). Distinct de `StatutExercice`, où l'exercice passe à
+ * `RELU`.
+ */
+export type StatutRelecture = "EN_ATTENTE" | "RENDUE";
+
+/**
+ * Élément de GET /api/relecteurs/{etudiantId}/relectures-en-attente (EF6).
+ * L'identité de l'auteur n'y figure jamais (RG6).
+ */
+export interface MissionRelecteur {
+  relectureId: number;
+  exerciceId: number;
+  sessionId: number;
+  lien: string;
+  statut: StatutRelecture;
+}
+
+/** Corps de POST /api/relectures/{id} (EF6) — noms de champs imposés par le contrat. */
+export interface SoumissionRelectureRequete {
+  note: number;
+  commentaire: string;
+}
+
+/** Réponse 200 de POST /api/relectures/{id} (EF6). */
+export interface RelectureRendueReponse {
+  relectureId: number;
+  exerciceId: number;
+  note: number;
+  commentaire: string;
+  statut: StatutRelecture;
 }
