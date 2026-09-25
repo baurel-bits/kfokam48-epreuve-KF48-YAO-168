@@ -1,0 +1,56 @@
+# Operating System Files
+.DS_Store
+Thumbs.db
+*.tmp
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.settings/
+.project
+.classpath
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.*
+!.env.example
+*.env
+
+# Backend (Maven / Java)
+backend/target/
+backend/.mvn/wrapper/maven-wrapper.jar
+*.class
+*.log
+backend/logs/
+
+# Frontend (Node / Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Docker
+docker-data/
+*.pid
+
+# Secrets & certificats (hors perimetre du sujet)
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+*.keystore
+
+# Surcharges locales (SMTP / config locale hors perimetre)
+application-local.yml
+application-local.yaml
