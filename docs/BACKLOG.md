@@ -95,7 +95,7 @@ Critères d'acceptation :
 **Critères d'acceptation :**
 - Quand un exercice est déposé, alors un relecteur est tiré au hasard parmi les étudiants présents à la session et différent de l'auteur.
 - Quand le pool est évalué, alors il est recalculé à l'instant de l'assignation, présences manuelles antérieures incluses.
-- Quand aucun étudiant éligible n'est disponible, alors l'exercice reste au statut `EN_ATTENTE_RELECTURE` sans relecteur.
+- Quand aucun étudiant éligible n'est disponible, alors aucun relecteur n'est attaché et l'exercice reste au statut `DEPOSE` (la transition de D4 est gardée par l'attribution d'un relecteur ; l'exercice reste « non rendu », donc en attente au tableau — RG9).
 - Quand l'étudiant est l'auteur de l'exercice, alors il ne peut jamais être désigné comme son relecteur.
 - Quand le relecteur consulte sa mission, alors seule sa propre identité (`relecteurId`) donne accès à l'exercice assigné (RG6).
 

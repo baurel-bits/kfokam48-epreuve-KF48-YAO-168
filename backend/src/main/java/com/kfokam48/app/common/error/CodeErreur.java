@@ -42,6 +42,15 @@ public enum CodeErreur {
     /** EF3 (RG10/RG14) — la session est clôturée, plus aucun dépôt n'est accepté (contrat : {@code 409}). */
     SESSION_CLOTUREE,
 
+    /** EF4/EF5 — l'exercice visé n'existe pas. */
+    EXERCICE_INCONNU,
+
+    /** EF5 (RG6) — aucune relecture n'est assignée à cet exercice (contrat : {@code 404}). */
+    RELECTURE_INCONNUE,
+
+    /** EF5 (RG6) — l'appelant n'est pas le relecteur assigné (contrat : {@code 403}). */
+    APPELANT_NON_AUTORISE,
+
     /** Requête HTTP refusée par Spring MVC (404, 405, ...). */
     DEMANDE_INVALIDE,
 

@@ -8,6 +8,7 @@ import com.kfokam48.app.features.exercice.domain.entity.Exercice;
 import com.kfokam48.app.features.exercice.domain.entity.StatutExercice;
 import com.kfokam48.app.features.exercice.domain.repository.ExerciceRepository;
 import com.kfokam48.app.features.promotion.domain.repository.EtudiantRepository;
+import com.kfokam48.app.features.relecture.application.service.AssignateurRelecteur;
 import com.kfokam48.app.features.session.domain.entity.Session;
 import com.kfokam48.app.features.session.domain.repository.SessionRepository;
 import java.net.URI;
@@ -35,8 +36,10 @@ import org.springframework.transaction.annotation.Transactional;
  * de la fenêtre de présence — c'est pourquoi {@code expirationAt} n'est jamais
  * consulté par ce service.
  *
- * <p>L'assignation d'un relecteur n'est <strong>pas</strong> traitée ici : c'est un
- * effet de bord de ce dépôt, mais il relève de l'EF5 (issue #11).
+ * <p>EF5 : le dépôt déclenche l'assignation d'un relecteur (effet de bord, RG5/RG13).
+ * Lorsqu'un relecteur est trouvé, l'exercice passe de {@code DEPOSE} à
+ * {@code EN_ATTENTE_RELECTURE} (D4) ; sans étudiant éligible, il reste
+ * {@code DEPOSE} et aucun relecteur ne lui est attaché.
  */
 @Service
 public class ExerciceService {
@@ -47,13 +50,16 @@ public class ExerciceService {
     private final ExerciceRepository exerciceRepository;
     private final SessionRepository sessionRepository;
     private final EtudiantRepository etudiantRepository;
+    private final AssignateurRelecteur assignateurRelecteur;
 
     public ExerciceService(ExerciceRepository exerciceRepository,
                            SessionRepository sessionRepository,
-                           EtudiantRepository etudiantRepository) {
+                           EtudiantRepository etudiantRepository,
+                           AssignateurRelecteur assignateurRelecteur) {
         this.exerciceRepository = exerciceRepository;
         this.sessionRepository = sessionRepository;
         this.etudiantRepository = etudiantRepository;
+        this.assignateurRelecteur = assignateurRelecteur;
     }
 
     @Transactional
@@ -83,6 +89,11 @@ public class ExerciceService {
 
         Exercice exercice = exerciceRepository.save(new Exercice(session.getId(), requete.etudiantId(),
                 lien, StatutExercice.DEPOSE, LocalDateTime.now()));
+
+        // EF5 (RG5, RG13) : le pool est évalué à cet instant précis, présences
+        // manuelles antérieures incluses.
+        assignateurRelecteur.assignerUnRelecteur(exercice.getId(), session.getId(), requete.etudiantId())
+                .ifPresent(relecteurId -> exercice.attribuerRelecteur());
 
         return new ExerciceDeposeReponse(exercice.getId(), exercice.getStatut());
     }

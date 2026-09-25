@@ -67,7 +67,7 @@ Substance reprise des issues d'origine (sauvegardées dans `backup/issues-avant-
 - Le relecteur choisi est bien **présent** à la session.
 - L'auteur n'est **jamais** désigné comme relecteur de son propre exercice (RG4).
 - Le pool est **recalculé au moment de l'assignation** (RG13), présences manuelles antérieures incluses.
-- Aucun étudiant éligible → l'exercice reste `EN_ATTENTE_RELECTURE` sans relecteur (RG9).
+- Aucun étudiant éligible → **aucun relecteur n'est attaché et l'exercice reste `DEPOSE`** : la transition de D4 est gardée par « Attribution d'un relecteur », et cette équivalence `DEPOSE` ⟺ aucune relecture est ce qui rendra RG11 (EF4) vérifiable sans requête supplémentaire. Il apparaît malgré tout comme « non rendu » dans le tableau (RG9). Décision révisée à l'implémentation de l'issue #11, voir D4, section EF5.
 - Un exercice n'a **qu'un seul** relecteur (RG5).
 - `GET /api/exercices/{exerciceId}/relecteur` → `200` pour le relecteur assigné, `403` pour tout autre appelant, `404` si aucune relecture n'est assignée (RG6).
 
