@@ -128,6 +128,28 @@ class PresenceControllerTest {
                 .andExpect(jsonPath("$.message").isNotEmpty());
     }
 
+    @Test
+    @DisplayName("POST /api/presences : 5 codes inconnus bloquent l'étudiant 2 minutes (429)")
+    void cinq_codes_inconnus_renvoient_429() throws Exception {
+        long etudiantId = 5L;
+
+        for (int tentative = 1; tentative <= 5; tentative++) {
+            mockMvc.perform(post("/api/presences")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(corpsPresence("ZZZZZZ", etudiantId)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("CODE_INCONNU"));
+        }
+
+        // 6e échec : le blocage RG3 prime, le code n'est même plus évalué.
+        mockMvc.perform(post("/api/presences")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(corpsPresence("ZZZZZZ", etudiantId)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("TROP_DE_TENTATIVES"))
+                .andExpect(jsonPath("$.message").isNotEmpty());
+    }
+
     private String ouvrirSession(String titre) throws Exception {
         String corps = mockMvc.perform(post("/api/sessions")
                         .contentType(MediaType.APPLICATION_JSON)

@@ -180,6 +180,37 @@ class PresenceServiceTest {
     }
 
     @Test
+    @DisplayName("RG3 : cinq codes inconnus bloquent 2 minutes, le 6e est refusé en 429")
+    void rg3_codes_inconnus_bloquent_apres_cinq_echecs() {
+        when(etudiantRepository.existsById(ETUDIANT_ID)).thenReturn(true);
+        when(sessionRepository.findByCode("ZZZZZZ")).thenReturn(Optional.empty());
+        TentativeSaisie compteurDeLEtudiant = TentativeSaisie.sansSession(ETUDIANT_ID);
+        when(tentativeSaisieRepository.findBySessionIdIsNullAndEtudiantId(ETUDIANT_ID))
+                .thenReturn(Optional.of(compteurDeLEtudiant));
+
+        for (int tentative = 1; tentative <= MAX_ECHECS; tentative++) {
+            assertThatThrownBy(() -> presenceService.marquerPresence(new MarquagePresenceRequete("ZZZZZZ", ETUDIANT_ID)))
+                    .isInstanceOf(ExceptionMetier.class)
+                    .satisfies(thrown -> assertThat(((ExceptionMetier) thrown).getCode())
+                            .isEqualTo(CodeErreur.CODE_INCONNU));
+        }
+
+        assertThat(compteurDeLEtudiant.getEchecs()).isEqualTo(MAX_ECHECS);
+        assertThat(compteurDeLEtudiant.getBloqueJusqua()).isNotNull();
+
+        // La session reste inconnue : le blocage ne vient que du compteur par étudiant.
+        verify(tentativeSaisieRepository, never()).findBySessionIdAndEtudiantId(any(), any());
+
+        assertThatThrownBy(() -> presenceService.marquerPresence(new MarquagePresenceRequete("ZZZZZZ", ETUDIANT_ID)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> {
+                    ExceptionMetier erreur = (ExceptionMetier) thrown;
+                    assertThat(erreur.getCode()).isEqualTo(CodeErreur.TROP_DE_TENTATIVES);
+                    assertThat(erreur.getStatut()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+                });
+    }
+
+    @Test
     @DisplayName("Un code inconnu est refusé en 400 CODE_INCONNU")
     void code_inconnu_refuse() {
         when(etudiantRepository.existsById(ETUDIANT_ID)).thenReturn(true);

@@ -8,4 +8,11 @@ public interface TentativeSaisieRepository extends JpaRepository<TentativeSaisie
 
     /** Compteur RG3, cloisonné par couple (étudiant, session). */
     Optional<TentativeSaisie> findBySessionIdAndEtudiantId(Long sessionId, Long etudiantId);
+
+    /**
+     * Compteur RG3 des codes non attribuables à une session (code inconnu).
+     * La recherche utilise {@code IS NULL} : une comparaison {@code = NULL} ne
+     * renverrait jamais la ligne et le compteur ne pourrait pas s'incrémenter.
+     */
+    Optional<TentativeSaisie> findBySessionIdIsNullAndEtudiantId(Long etudiantId);
 }

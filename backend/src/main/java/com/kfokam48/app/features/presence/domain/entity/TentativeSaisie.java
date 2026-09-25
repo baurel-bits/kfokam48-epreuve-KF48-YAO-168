@@ -10,8 +10,15 @@ import java.time.LocalDateTime;
 
 /**
  * Compteur d'échecs de saisie de code (RG3, diagramme D2).
- * Le compteur est cloisonné par couple (étudiant, session) : être bloqué sur une
- * session n'empêche pas de saisir un code pour une autre.
+ *
+ * <p>Deux portées :
+ * <ul>
+ *   <li><strong>par couple (étudiant, session)</strong> lorsque le code est
+ *       attribuable à une session (code expiré) : être bloqué sur une session
+ *       n'empêche pas de saisir un code pour une autre ;</li>
+ *   <li><strong>par étudiant</strong> ({@code session_id IS NULL}) lorsque le code
+ *       est inconnu et ne peut être rattaché à aucune session (V3).</li>
+ * </ul>
  */
 @Entity
 @Table(name = "tentative_saisie")
@@ -41,6 +48,15 @@ public class TentativeSaisie {
         this.sessionId = sessionId;
         this.etudiantId = etudiantId;
         this.echecs = 0;
+    }
+
+    /**
+     * Compteur des codes <strong>non attribuables à une session</strong> (code inconnu).
+     * Le contrat n'envoyant que {@code { code, etudiantId }}, la session est
+     * indéterminable : la ligne porte donc {@code session_id = NULL}.
+     */
+    public static TentativeSaisie sansSession(Long etudiantId) {
+        return new TentativeSaisie(null, etudiantId);
     }
 
     public Long getId() {

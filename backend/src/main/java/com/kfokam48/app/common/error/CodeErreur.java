@@ -27,7 +27,7 @@ public enum CodeErreur {
     /** EF2 — le couple (session, étudiant) a déjà une présence (contrat : {@code 409}). */
     DEJA_PRESENT,
 
-    /** EF2 (RG3) — 5 échecs de saisie atteints, couple bloqué 2 minutes (contrat : {@code 429}). */
+    /** EF2 (RG3) — 5 échecs de saisie atteints, étudiant bloqué 2 minutes (contrat : {@code 429}). */
     TROP_DE_TENTATIVES,
 
     /** Requête HTTP refusée par Spring MVC (404, 405, ...). */

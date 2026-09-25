@@ -28,6 +28,8 @@ sequenceDiagram
 
     alt Code inconnu — EF2
         Note over S: findByCode n'a retourné aucune session
+        S->>R: incrementerEchec(etudiantId, sessionId = NULL)
+        Note right of R: RG3 — compteur par étudiant (V3)
         S-->>API: throw CodeInconnuException
         API-->>F: 400 { "code": "CODE_INCONNU", "message": "Aucune session ne correspond à ce code de présence." }
         F-->>E: Affiche le message d'erreur
@@ -74,7 +76,7 @@ sequenceDiagram
 
 ## Points de vigilance
 
-- **RG3 (blocage) — tranché** : le contrôle du blocage s'effectue **avant** la validation du code et renvoie **`429 TROP_DE_TENTATIVES`**. Le compteur d'échecs (`tentative_saisie`) est incrémenté sur tout code refusé **dont la session est identifiable** (code expiré) ; un code **inconnu** ne peut pas être imputé à une session — le contrat n'envoie que `{ code, etudiantId }` et `tentative_saisie.session_id` est `NOT NULL` — il n'alimente donc pas le compteur ; à 5 échecs, le couple (étudiant, session) est bloqué 2 minutes. Les codes imposés `400`/`409`/`410` restent **inchangés** : le `429` est un **ajout** documenté dans `api/contrat.yaml`.
+- **RG3 (blocage) — tranché** : le contrôle du blocage s'effectue **avant** la validation du code et renvoie **`429 TROP_DE_TENTATIVES`**. Le compteur d'échecs (`tentative_saisie`) porte **deux portées** : **par couple (étudiant, session)** quand le code est attribuable à une session (code expiré), et **par étudiant** (`session_id IS NULL`, migration `V3`) quand le code est inconnu et ne peut être rattaché à aucune session — le contrat n'envoyant que `{ code, etudiantId }` ; à 5 échecs, l'étudiant est bloqué 2 minutes, et le compteur repart à zéro une fois le blocage écoulé. Les codes imposés `400`/`409`/`410` restent **inchangés** : le `429` est un **ajout** documenté dans `api/contrat.yaml`.
 - **Priorité des contrôles** : le diagramme évalue l'expiration **avant** l'unicité de présence ; si un code expiré concerne un étudiant déjà présent, le client reçoit `410` (et non `409`).
 - **`{ code, message }`** : ce format imposé est **différent** du `ApiResponse` du socle actuel (`success/message/data/errors`). Le `GlobalExceptionHandler` devra exposer une réponse dédiée pour respecter le contrat.
 - **Style** : le diagramme suit la convention du D3 existant (participants `Étudiant / Frontend / Controller / Service`). L'**Annexe C** n'étant pas fournie dans le contexte, je m'aligne sur ce style — dis-moi si elle impose une autre convention (noms de participants, `Note`, `rect`).
