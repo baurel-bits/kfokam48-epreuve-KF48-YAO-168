@@ -17,7 +17,7 @@ const ECRANS = [
     href: "/etudiant",
     titre: "Espace étudiant",
     description:
-      "EF2 / EF3 — marquer sa présence avec le code de la session, puis déposer le lien de son exercice.",
+      "EF2 / EF3 / EF8 — marquer sa présence, déposer son exercice, puis consulter les notes reçues.",
   },
   {
     href: "/relecteur",
@@ -52,15 +52,6 @@ export default function Accueil() {
         ))}
       </ul>
 
-      {/* L'écran « étudiant relu » (EF8) reste à livrer : annoncé sans lien,
-          pour ne pas mener à une page inexistante. */}
-      <div className="rounded-lg border border-dashed border-slate-300 p-5">
-        <h2 className="font-medium text-slate-500">Mes notes reçues</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          EF8 — consulter la note reçue sans connaître son relecteur. Prévu par
-          l&apos;issue #13, pas encore livré.
-        </p>
-      </div>
     </section>
   );
 }

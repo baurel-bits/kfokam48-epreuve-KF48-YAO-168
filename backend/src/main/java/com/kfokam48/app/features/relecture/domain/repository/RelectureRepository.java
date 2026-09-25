@@ -17,4 +17,11 @@ public interface RelectureRepository extends JpaRepository<Relecture, Long> {
      * décidé par le plan d'exécution de la base.
      */
     List<Relecture> findByRelecteurIdAndStatutOrderByIdAsc(Long relecteurId, StatutRelecture statut);
+
+    /**
+     * Relectures portant sur les exercices d'un étudiant (EF8), les plus récentes
+     * d'abord. {@code auteurId} est dénormalisé depuis l'exercice et maintenu par
+     * la clé étrangère composite : la lecture est donc exacte sans jointure.
+     */
+    List<Relecture> findByAuteurIdOrderByIdDesc(Long auteurId);
 }

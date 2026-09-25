@@ -16,6 +16,7 @@ import com.kfokam48.app.features.presence.domain.entity.Presence;
 import com.kfokam48.app.features.presence.domain.entity.SourcePresence;
 import com.kfokam48.app.features.presence.domain.repository.PresenceRepository;
 import com.kfokam48.app.features.relecture.application.dto.MissionRelecteurReponse;
+import com.kfokam48.app.features.relecture.application.dto.NoteRecueReponse;
 import com.kfokam48.app.features.relecture.application.dto.RelectureRendueReponse;
 import com.kfokam48.app.features.relecture.application.dto.SoumissionRelectureRequete;
 import com.kfokam48.app.features.relecture.domain.entity.Relecture;
@@ -316,6 +317,48 @@ class RelectureServiceTest {
 
         assertThat(relectureService.listerMissionsEnAttente(RELECTEUR_ID)).isEmpty();
         verify(exerciceRepository, never()).findAllById(any());
+    }
+
+    // ---------- EF8 : l'étudiant relu consulte ses notes ----------
+
+    @Test
+    @DisplayName("EF8 : l'étudiant relu reçoit la note et le commentaire, sans l'identité du relecteur (RG6)")
+    void notes_recues_apres_rendu() {
+        Relecture rendue = relectureAssignee();
+        rendue.rendre(15, COMMENTAIRE);
+        when(relectureRepository.findByAuteurIdOrderByIdDesc(AUTEUR_ID)).thenReturn(List.of(rendue));
+
+        List<NoteRecueReponse> notes = relectureService.listerRelecturesRecues(AUTEUR_ID);
+
+        assertThat(notes).hasSize(1);
+        NoteRecueReponse note = notes.get(0);
+        assertThat(note.exerciceId()).isEqualTo(EXERCICE_ID);
+        assertThat(note.statut()).isEqualTo(StatutRelecture.RENDUE);
+        assertThat(note.note()).isEqualTo(15);
+        assertThat(note.commentaire()).isEqualTo(COMMENTAIRE);
+        // RG6 : la réponse ne porte aucun identifiant de relecteur, même à l'état brut.
+        assertThat(note.toString()).doesNotContain("relecteur");
+    }
+
+    @Test
+    @DisplayName("RG9 (EF8) : une relecture encore en attente apparaît sans note ni commentaire")
+    void notes_recues_en_attente() {
+        when(relectureRepository.findByAuteurIdOrderByIdDesc(AUTEUR_ID)).thenReturn(List.of(relectureAssignee()));
+
+        List<NoteRecueReponse> notes = relectureService.listerRelecturesRecues(AUTEUR_ID);
+
+        assertThat(notes).hasSize(1);
+        assertThat(notes.get(0).statut()).isEqualTo(StatutRelecture.EN_ATTENTE);
+        assertThat(notes.get(0).note()).isNull();
+        assertThat(notes.get(0).commentaire()).isNull();
+    }
+
+    @Test
+    @DisplayName("EF8 : un étudiant sans relecture reçoit une liste vide")
+    void notes_recues_vides() {
+        when(relectureRepository.findByAuteurIdOrderByIdDesc(999L)).thenReturn(List.of());
+
+        assertThat(relectureService.listerRelecturesRecues(999L)).isEmpty();
     }
 
     /** RG5 : la relecture réellement confiée est celle qui a été écrite en base. */

@@ -101,6 +101,36 @@ Substance reprise des issues d'origine (sauvegardées dans `backup/issues-avant-
 
 ---
 
+## EF8
+
+### Tests backend
+- Relecture `RENDUE` → l'étudiant relu obtient sa note entière et son commentaire (`200`).
+- Relecture encore `EN_ATTENTE` → la ligne figure dans la liste avec `note` et `commentaire` **nuls** (RG9) : l'exercice apparaît « en attente » au lieu de sembler ignoré.
+- **L'identité du relecteur n'apparaît dans aucune réponse** (RG6) : le DTO de sortie ne porte que `exerciceId`, `statut`, `note`, `commentaire`, et une assertion vérifie explicitement qu'aucune clé n'évoque le relecteur.
+- Étudiant sans relecture → `200` avec une **liste vide** : le contrat ne déclare que `200` sur cette opération, l'absence de relecture n'est pas une erreur.
+- Ordre de la liste : de la plus récente à la plus ancienne.
+
+### Tests frontend
+- Étape **« 4. Mes notes reçues »** de l'écran étudiant : bouton d'affichage, état de chargement, bouton désactivé pendant l'appel.
+- Liste vide → « Aucune relecture reçue pour l'instant », pas de message d'erreur.
+- Relecture en attente → `EN_ATTENTE — note à venir` ; relecture rendue → `15/20 — RENDUE` suivi du commentaire.
+- Changer d'étudiant à l'étape 1 vide les notes affichées : celles de l'étudiant précédent ne restent jamais à l'écran.
+- Aucune interprétation côté client (F3) : note et statut sont affichés tels que renvoyés par l'API.
+
+### Contraintes techniques
+- Lecture seule (`@Transactional(readOnly = true)`), une requête, pas de N+1.
+- Le contrat de sortie est **figé à quatre champs** : ajouter un champ exposant le relecteur romprait RG6 — la protection est structurelle, pas seulement conventionnelle.
+- `auteurId` est dénormalisé depuis l'exercice et maintenu par la clé étrangère composite : la lecture est exacte sans jointure.
+
+### ⚠️ Limite assumée
+Un exercice **sans relecture assignée** (aucun étudiant éligible au dépôt — décision EF5, équivalence `DEPOSE` ⟺ aucune relecture) n'apparaît pas dans cette liste : l'opération liste des **relectures**, pas des exercices. Il n'en reste pas moins visible comme « non rendu » dans le tableau du formateur (RG9).
+
+### Livrables
+- Endpoint + service + DTO de sortie ; tests unitaires et d'intégration (`200`, liste vide, absence du relecteur) ; documentation OpenAPI (contrat inchangé : l'opération y figurait déjà).
+- Frontend : étape 4 « Mes notes reçues » de l'écran étudiant, branchée sur la couche d'appel API dédiée.
+
+---
+
 ## EF9
 
 ### Métriques attendues (par étudiant de la promotion)

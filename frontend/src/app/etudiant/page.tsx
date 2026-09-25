@@ -2,13 +2,19 @@
 
 import { useState } from "react";
 import { ApiError } from "@/core/api/types";
-import type { EtudiantResume, ExerciceDeposeReponse, PresenceReponse } from "@/core/api/types";
+import type {
+  EtudiantResume,
+  ExerciceDeposeReponse,
+  NoteRecue,
+  PresenceReponse,
+} from "@/core/api/types";
 import { deposerExercice } from "@/features/exercice/api/deposerExercice";
 import { marquerPresence } from "@/features/presence/api/marquerPresence";
 import { listerEtudiants } from "@/features/promotion/api/listerEtudiants";
+import { listerNotesRecues } from "@/features/relecture/api/listerNotesRecues";
 
 /** Étape de l'écran à laquelle rattacher une erreur. */
-type Etape = "etudiants" | "presence" | "depot";
+type Etape = "etudiants" | "presence" | "depot" | "notes";
 
 /** Forme affichable d'une erreur : le `code` imposé par le contrat + son message. */
 interface ErreurAffichee {
@@ -37,7 +43,8 @@ function BlocErreur({ erreur }: { erreur: ErreurAffichee }) {
 }
 
 /**
- * Écran étudiant — EF2 (marquer sa présence) et EF3 (déposer son exercice).
+ * Écran étudiant — EF2 (marquer sa présence), EF3 (déposer son exercice) et
+ * EF8 (consulter ses notes reçues).
  * Vue mobile en priorité (ENF1) : une colonne, aucune largeur fixe, aucun
  * défilement horizontal. Aucune règle métier n'est recalculée ici (F3) :
  * format du lien, expiration du code, blocage RG3 et statut de l'exercice
@@ -57,6 +64,9 @@ export default function EcranEtudiant() {
   const [exercice, setExercice] = useState<ExerciceDeposeReponse | null>(null);
   const [chargementDepot, setChargementDepot] = useState(false);
 
+  const [notes, setNotes] = useState<NoteRecue[] | null>(null);
+  const [chargementNotes, setChargementNotes] = useState(false);
+
   const [chargementListe, setChargementListe] = useState(false);
   const [erreur, setErreur] = useState<ErreurAffichee | null>(null);
 
@@ -67,6 +77,7 @@ export default function EcranEtudiant() {
     setPresence(null);
     setEtudiants([]);
     setEtudiantId(null);
+    setNotes(null);
 
     try {
       setEtudiants(await listerEtudiants(Number(promotionId)));
@@ -128,6 +139,23 @@ export default function EcranEtudiant() {
     }
   }
 
+  async function chargerLesNotes() {
+    if (etudiantId === null || chargementNotes) {
+      return;
+    }
+
+    setChargementNotes(true);
+    setErreur(null);
+
+    try {
+      setNotes(await listerNotesRecues(etudiantId));
+    } catch (echec) {
+      setErreur(versErreur(echec, "notes", "Impossible de charger vos notes reçues."));
+    } finally {
+      setChargementNotes(false);
+    }
+  }
+
   return (
     <section className="mx-auto flex w-full max-w-sm flex-col gap-6">
       <header>
@@ -183,7 +211,11 @@ export default function EcranEtudiant() {
                   <button
                     type="button"
                     aria-pressed={selectionne}
-                    onClick={() => setEtudiantId(etudiant.id)}
+                    onClick={() => {
+                      setEtudiantId(etudiant.id);
+                      // Les notes affichées appartenaient à l'étudiant précédent.
+                      setNotes(null);
+                    }}
                     className={`w-full rounded border px-3 py-3 text-left text-sm ${
                       selectionne
                         ? "border-slate-900 bg-slate-900 text-white"
@@ -321,6 +353,57 @@ export default function EcranEtudiant() {
 
         {erreur?.etape === "depot" && <BlocErreur erreur={erreur} />}
       </form>
+
+      <section className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4">
+        <h2 className="text-sm font-medium">4. Mes notes reçues</h2>
+
+        <p className="text-xs text-slate-500">
+          La note et le commentaire reçus pour vos exercices. Le nom de votre
+          relecteur ne vous est jamais communiqué.
+        </p>
+
+        <button
+          type="button"
+          disabled={etudiantId === null || chargementNotes}
+          onClick={chargerLesNotes}
+          className="w-full rounded border border-slate-300 bg-white px-4 py-3 text-sm font-medium disabled:opacity-50"
+        >
+          {chargementNotes ? "Chargement…" : "Afficher mes notes reçues"}
+        </button>
+
+        {etudiantId === null && (
+          <p className="text-xs text-slate-500">
+            Choisissez d&apos;abord votre nom à l&apos;étape 1.
+          </p>
+        )}
+
+        {notes !== null && notes.length === 0 && (
+          <p className="text-sm text-slate-500">Aucune relecture reçue pour l&apos;instant.</p>
+        )}
+
+        {notes !== null && notes.length > 0 && (
+          <ul aria-label="Notes reçues" className="flex flex-col gap-2">
+            {notes.map((note) => (
+              <li
+                key={note.exerciceId}
+                className="rounded border border-slate-300 px-3 py-3 text-sm"
+              >
+                <p className="font-medium">Exercice n°{note.exerciceId}</p>
+                <p className="mt-1 text-slate-600">
+                  {note.note === null
+                    ? `${note.statut} — note à venir`
+                    : `${note.note}/20 — ${note.statut}`}
+                </p>
+                {note.commentaire !== null && (
+                  <p className="mt-1 text-slate-600">{note.commentaire}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {erreur?.etape === "notes" && <BlocErreur erreur={erreur} />}
+      </section>
     </section>
   );
 }

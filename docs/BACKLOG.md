@@ -143,6 +143,7 @@ Critères d'acceptation :
 - Quand une relecture a été rendue, alors l'étudiant voit la note et le commentaire reçus.
 - Quand l'étudiant consulte sa note, alors l'identité du relecteur n'apparaît dans aucune réponse de l'API.
 - Quand aucune relecture n'est encore rendue, alors son exercice est affiché « en attente », sans note.
+- Quand l'étudiant n'a encore aucune relecture, alors l'API répond `200` avec une liste vide (l'absence de relecture n'est pas une erreur).
 
 **Endpoints du contrat :** `GET /api/etudiants/{etudiantId}/relectures-recues`
 
