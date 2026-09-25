@@ -116,6 +116,27 @@ scripts/                Outillage (backlog GitHub : création, enrichissement, f
                         issues ; remise à zéro des données ; parcours navigateur)
 ```
 
+## Jalons
+
+Le projet est livré par jalons, conformément à la démarche du cahier des charges
+(section 10). Les deux jalons de version sont en plus publiés sous forme de tags
+annotés :
+
+| Jalon | Tag | Commit | Contenu |
+|---|---|---|---|
+| `[JALON] analyse` | — | `6a26d60` | Cahier des charges, diagrammes D1-D4, backlog et contrat d'API complété |
+| `[JALON] depart` | — | `ebcea83` | Squelette backend / frontend et outillage du backlog |
+| `[JALON] v0.1` | `v0.1` | `fc15ecb` | Périmètre `Must` : EF1, EF2, EF3, EF5, EF6, EF8, EF9, EF11 |
+| `[JALON] v1.0` | `v1.0` | `4338ff1` | Finalisation : `CHANGELOG.md`, `SOUMISSION.md`, README rejoué depuis un clone vierge |
+
+`v0.1` et `v1.0` sont des commits **marqueurs** : le code du périmètre `Must` est
+fusionné sur `main` par les PR #19 à #25 et #27 (dernière issue `Must` : `9bc04ff`),
+le marqueur ayant été posé au moment de la finalisation du livrable. Le détail par
+jalon — issues, correctifs, écarts — est dans [`CHANGELOG.md`](CHANGELOG.md), et la
+fiche de soumission dans [`SOUMISSION.md`](SOUMISSION.md).
+
+Visualisation : `git log --oneline --decorate` et `git tag -n`.
+
 ## Limites connues
 
 - **Pas d'authentification** : le sujet exclut le couple identifiant/mot de passe
