@@ -122,11 +122,20 @@ public class PresenceService {
                     "Cet étudiant a déjà marqué sa présence pour cette session.");
         }
 
-        Presence presence = presenceRepository.save(
-                new Presence(session.getId(), etudiantId, SourcePresence.ETUDIANT, maintenant));
+        try {
+            Presence presence = presenceRepository.save(
+                    new Presence(session.getId(), etudiantId, SourcePresence.ETUDIANT, maintenant));
 
-        return new PresenceReponse(presence.getId(), presence.getSessionId(), presence.getEtudiantId(),
-                presence.getSource());
+            return new PresenceReponse(presence.getId(), presence.getSessionId(), presence.getEtudiantId(),
+                    presence.getSource());
+        } catch (DataIntegrityViolationException echec) {
+            // Deux envois simultanés du même étudiant : le contrôle ci-dessus les a
+            // laissés passer tous les deux, et c'est uk_presence_session_etudiant qui
+            // tranche. Sans cette reprise, la course produirait un 500 au lieu du 409
+            // du contrat. Même reprise que l'EF10 (ajouterPresenceManuelle).
+            throw new ExceptionMetier(CodeErreur.DEJA_PRESENT, HttpStatus.CONFLICT,
+                    "Cet étudiant a déjà marqué sa présence pour cette session.");
+        }
     }
 
     /**

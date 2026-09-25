@@ -361,6 +361,28 @@ class PresenceServiceTest {
                 });
     }
 
+    @Test
+    @DisplayName("EF2 : deux envois simultanés du même étudiant donnent un 409 par la contrainte d'unicité, jamais un 500")
+    void marquage_concurrent_donne_409_par_la_contrainte() {
+        preparerSession(session(false));
+        when(tentativeSaisieRepository.findBySessionIdAndEtudiantId(SESSION_ID, ETUDIANT_ID))
+                .thenReturn(Optional.empty());
+        // Le contrôle applicatif a laissé passer les deux envois : c'est
+        // uk_presence_session_etudiant qui tranche, à l'insert.
+        when(presenceRepository.existsBySessionIdAndEtudiantId(SESSION_ID, ETUDIANT_ID)).thenReturn(false);
+        when(presenceRepository.save(any(Presence.class)))
+                .thenThrow(new DataIntegrityViolationException("uk_presence_session_etudiant"));
+
+        assertThatThrownBy(() -> presenceService.marquerPresence(
+                new MarquagePresenceRequete(CODE, ETUDIANT_ID)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> {
+                    ExceptionMetier erreur = (ExceptionMetier) thrown;
+                    assertThat(erreur.getCode()).isEqualTo(CodeErreur.DEJA_PRESENT);
+                    assertThat(erreur.getStatut()).isEqualTo(HttpStatus.CONFLICT);
+                });
+    }
+
     /** Contexte nominal de l'ajout manuel : session et étudiant existants, pas de doublon. */
     private void preparerAjoutManuel() {
         when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(false)));
