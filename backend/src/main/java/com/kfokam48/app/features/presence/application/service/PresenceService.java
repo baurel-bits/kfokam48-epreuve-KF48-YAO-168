@@ -2,6 +2,7 @@ package com.kfokam48.app.features.presence.application.service;
 
 import com.kfokam48.app.common.error.CodeErreur;
 import com.kfokam48.app.common.exception.ExceptionMetier;
+import com.kfokam48.app.features.presence.application.dto.AjoutPresenceManuelleRequete;
 import com.kfokam48.app.features.presence.application.dto.MarquagePresenceRequete;
 import com.kfokam48.app.features.presence.application.dto.PresenceReponse;
 import com.kfokam48.app.features.presence.domain.entity.Presence;
@@ -16,6 +17,7 @@ import java.time.LocalDateTime;
 import java.util.Locale;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -125,6 +127,59 @@ public class PresenceService {
 
         return new PresenceReponse(presence.getId(), presence.getSessionId(), presence.getEtudiantId(),
                 presence.getSource());
+    }
+
+    /**
+     * Ajout manuel d'une présence par le formateur (EF10, RG12).
+     *
+     * <p>Ordre des contrôles : session, étudiant, doublon.
+     *
+     * <p>Cette opération <strong>ne consulte ni le code de présence, ni son
+     * expiration</strong> : elle fonctionne sans code, et après les 15 minutes de
+     * RG1. Elle n'est pas davantage gelée par la clôture, RG14 ne portant que sur
+     * les dépôts et les notations — le contrat le formule ainsi (« gèle tout dépôt
+     * et toute notation ») et ne mentionne pas la présence.
+     *
+     * <p>{@code source = FORMATEUR} est décidée ici, jamais reçue du client : c'est
+     * ce qui rend la présence manuelle distinguable (RG12).
+     *
+     * @throws ExceptionMetier {@code 404 SESSION_INCONNUE}, {@code 404 ETUDIANT_INCONNU}
+     *         ou {@code 409 DEJA_PRESENT}, conformément au contrat.
+     */
+    @Transactional
+    public PresenceReponse ajouterPresenceManuelle(AjoutPresenceManuelleRequete requete) {
+        Session session = sessionRepository.findById(requete.sessionId())
+                .orElseThrow(() -> new ExceptionMetier(CodeErreur.SESSION_INCONNUE, HttpStatus.NOT_FOUND,
+                        "La session %d est inconnue.".formatted(requete.sessionId())));
+
+        // 404 et non 400 comme sur l'EF2 : le contrat déclare ETUDIANT_INCONNU en 404
+        // sur cette opération-là, et 400 sur l'opération imposée. Même règle, deux
+        // statuts différents selon le guichet.
+        if (!etudiantRepository.existsById(requete.etudiantId())) {
+            throw new ExceptionMetier(CodeErreur.ETUDIANT_INCONNU, HttpStatus.NOT_FOUND,
+                    "L'étudiant %d est inconnu.".formatted(requete.etudiantId()));
+        }
+
+        if (presenceRepository.existsBySessionIdAndEtudiantId(session.getId(), requete.etudiantId())) {
+            throw new ExceptionMetier(CodeErreur.DEJA_PRESENT, HttpStatus.CONFLICT,
+                    "Cet étudiant a déjà une présence pour cette session.");
+        }
+
+        try {
+            // Le flush est indispensable : sans lui, la violation de
+            // uk_presence_session_etudiant ne surviendrait qu'au commit, donc hors du
+            // bloc où on la rattrape.
+            Presence presence = presenceRepository.saveAndFlush(new Presence(session.getId(),
+                    requete.etudiantId(), SourcePresence.FORMATEUR, LocalDateTime.now()));
+            return new PresenceReponse(presence.getId(), presence.getSessionId(), presence.getEtudiantId(),
+                    presence.getSource());
+        } catch (DataIntegrityViolationException echec) {
+            // Deux clics simultanés du formateur : le contrôle ci-dessus les a laissés
+            // passer tous les deux, et c'est la contrainte d'unicité qui tranche. Sans
+            // cette reprise, la course produirait un 500 au lieu du 409 du contrat.
+            throw new ExceptionMetier(CodeErreur.DEJA_PRESENT, HttpStatus.CONFLICT,
+                    "Cet étudiant a déjà une présence pour cette session.");
+        }
     }
 
     private void verifierBlocage(TentativeSaisie tentative, LocalDateTime maintenant) {

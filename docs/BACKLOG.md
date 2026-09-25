@@ -300,6 +300,6 @@ Critères d'acceptation :
 | 8 | Le formateur clôture une session et fige les dépôts et les notes | EF11 | Must | 1h | ✅ |
 | 9 | L'étudiant remplace le lien de son exercice tant qu'il n'est pas relu | EF4 | Should | 1h30 | — |
 | 10 | Le relecteur corrige sa note avant la clôture de la session | EF7 | Should | 1h30 | — |
-| 11 | Le formateur ajoute manuellement une présence | EF10 | Should | 1h | — |
+| 11 | Le formateur ajoute manuellement une présence | EF10 | Should | 1h | ✅ |
 
 **Charge v0.1 (Must) : 17h.** Couverture : les 11 EF du cahier des charges, les 13 endpoints du contrat.

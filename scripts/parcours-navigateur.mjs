@@ -255,6 +255,17 @@ function remplir(selecteur, valeur) {
   champ.dispatchEvent(new Event("input", { bubbles: true }));
   return true;
 }
+
+// Un <select> contrôle React par l'evenement change (et non input) : c'est
+// celui que le parcours doit declencher pour choisir une session.
+function choisir(selecteur, valeur) {
+  const champ = document.querySelector(selecteur);
+  if (!champ) return false;
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set;
+  setter.call(champ, valeur);
+  champ.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}
 `;
 
 const cliquerSur = (selecteur) => `document.querySelector(${JSON.stringify(selecteur)}).click()`;
@@ -695,8 +706,85 @@ async function deroulerLeParcours(port) {
       `(document.querySelector('[role="alert"]')?.innerText ?? "(aucun)").split(String.fromCharCode(10)).join(" ")`,
     ));
 
-  // ---------- 5. Chemin d'erreur et affichage mobile ----------
-  console.log("\n5. Chemin d'erreur et affichage mobile");
+  // ---------- 5. EF10 : le formateur ajoute une présence manuellement ----------
+  console.log("\n5. Présence manuelle (/formateur)");
+
+  await cdp.envoyer("Page.navigate", { url: url("/formateur") });
+  await cdp.attendre(`document.querySelector("#sessionPresence") !== null`,
+    "bloc de présence manuelle affiché", 8000);
+  await attendreHydratation(cdp);
+  verifier("EF10 : le formateur dispose d'un bloc d'ajout manuel de présence",
+    await cdp.evaluer(`document.querySelector("#sessionPresence") !== null`));
+
+  // Session et promotion viennent de la liste ouverte par l'EF1 — aucun identifiant
+  // n'est ressaisi, donc aucun risque d'apparier une session et une promotion.
+  const sessionManuelle = await cdp.evaluer(
+    `document.querySelector("#sessionPresence").options[1].value`,
+  );
+  await cdp.evaluer(`${REMPLIR}; choisir("#sessionPresence", ${JSON.stringify(sessionManuelle)})`);
+  await cdp.attendre(
+    `document.querySelectorAll('ul[aria-label="Étudiants à marquer présents"] li').length > 2`,
+    "étudiants de la promotion chargés", 8000);
+
+  // Les deux premiers étudiants de la promotion ont déjà leur présence, marquée avec
+  // le code (étapes 3 et 4f) ; le troisième n'en a aucune.
+  const liEtudiant = (rang) =>
+    `document.querySelectorAll('ul[aria-label="Étudiants à marquer présents"] li')[${rang}]`;
+  const nomAjoute = await cdp.evaluer(
+    `${liEtudiant(2)}.innerText.split(String.fromCharCode(10))[0].trim()`,
+  );
+
+  await cdp.evaluer(
+    `[...${liEtudiant(2)}.querySelectorAll("button")].find((b) => b.textContent.includes("Marquer présent")).click()`,
+  );
+  // Confirmation en deux temps : un clic de trop ne doit pas créer de présence.
+  verifier("EF10 : l'ajout demande une confirmation avant d'appeler le serveur",
+    await cdp.evaluer(
+      `[...${liEtudiant(2)}.querySelectorAll("button")].some((b) => b.textContent.includes("Confirmer"))`,
+    ), `étudiant=${nomAjoute}`);
+  await cdp.evaluer(`${liEtudiant(2)}.querySelector("button").click()`);
+
+  let ajoutManuelOk = true;
+  try {
+    await cdp.attendre(`${liEtudiant(2)}.innerText.includes("FORMATEUR")`,
+      "présence manuelle enregistrée", 8000);
+  } catch {
+    ajoutManuelOk = false;
+  }
+  verifier("EF10/RG12 : la présence est créée avec la source FORMATEUR, sans code et malgré la clôture (RG14 ne gèle que dépôts et notes)",
+    ajoutManuelOk,
+    await cdp.evaluer(`${liEtudiant(2)}.innerText.split(String.fromCharCode(10)).join(" ").trim()`));
+
+  // Rejouer le même ajout, après rechargement : c'est le seul moyen d'atteindre le
+  // refus, l'écran marquant l'étudiant comme présent dès le 201.
+  await cdp.envoyer("Page.navigate", { url: url("/formateur") });
+  await cdp.attendre(`document.querySelector("#sessionPresence") !== null`,
+    "écran formateur rechargé", 8000);
+  await attendreHydratation(cdp);
+  await cdp.evaluer(`${REMPLIR}; choisir("#sessionPresence", ${JSON.stringify(sessionManuelle)})`);
+  await cdp.attendre(
+    `document.querySelectorAll('ul[aria-label="Étudiants à marquer présents"] li').length > 2`,
+    "étudiants rechargés", 8000);
+  await cdp.evaluer(
+    `[...${liEtudiant(2)}.querySelectorAll("button")].find((b) => b.textContent.includes("Marquer présent")).click()`,
+  );
+  await cdp.evaluer(`${liEtudiant(2)}.querySelector("button").click()`);
+
+  let doublonSignale = true;
+  try {
+    await cdp.attendre(`${liEtudiant(2)}.innerText.includes("Déjà présent")`,
+      "doublon signalé", 8000);
+  } catch {
+    doublonSignale = false;
+  }
+  verifier("EF10 : un second ajout pour la même session est refusé en DEJA_PRESENT et affiché comme tel",
+    doublonSignale && !(await cdp.evaluer(
+      `document.querySelector('[role="alert"]') !== null`,
+    )),
+    await cdp.evaluer(`${liEtudiant(2)}.innerText.split(String.fromCharCode(10)).join(" ").trim()`));
+
+  // ---------- 6. Chemin d'erreur et affichage mobile ----------
+  console.log("\n6. Chemin d'erreur et affichage mobile");
 
   // Un code inconnu doit afficher l'erreur du serveur, pas un écran cassé.
   await cdp.envoyer("Page.navigate", { url: url("/etudiant") });
@@ -730,20 +818,22 @@ async function deroulerLeParcours(port) {
   verifier("Aucun débordement horizontal sur 390 px de large (ENF1)", debordement <= 0, `débordement=${debordement}px`);
   await cdp.envoyer("Emulation.clearDeviceMetricsOverride");
 
-  // ---------- 6. Hygiène du navigateur ----------
-  console.log("\n6. Console et réseau");
+  // ---------- 7. Hygiène du navigateur ----------
+  console.log("\n7. Console et réseau");
   verifier("Aucune exception JavaScript", exceptions.length === 0, exceptions.slice(0, 3).join(" | "));
   verifier("Aucune erreur console", erreursConsole.length === 0, erreursConsole.slice(0, 3).join(" | "));
 
   // Entrées attendues, exclues du contrôle : le 400 provoqué par le code inconnu
-  // (étape 5), les 409 provoqués par le dépôt et par la notation sur une session
-  // clôturée (étapes 4e et 4f — c'est précisément le comportement vérifié), et le
-  // chargement de page que ce script interrompt lui-même en naviguant (Chrome
-  // démarre sur BASE_URL, puis le pilote prend la main).
+  // (étape 6), les 409 provoqués par le dépôt et par la notation sur une session
+  // clôturée (étapes 4e et 4f) et par le second ajout manuel de présence (étape 5)
+  // — c'est précisément le comportement vérifié —, ainsi que le chargement de page
+  // que ce script interrompt lui-même en naviguant (Chrome démarre sur BASE_URL,
+  // puis le pilote prend la main).
   const inattendues = requetesEnEchec.filter(
     (e) => !e.includes(`HTTP 400 ${API_URL}/api/presences`)
       && !e.includes(`HTTP 409 ${API_URL}/api/exercices`)
       && !e.includes(`HTTP 409 ${API_URL}/api/relectures/`)
+      && !e.includes(`HTTP 409 ${API_URL}/api/presences/manuelles`)
       && !e.includes("net::ERR_ABORTED (Document)"),
   );
   verifier("Aucune requête réseau en échec hors refus provoqué", inattendues.length === 0,

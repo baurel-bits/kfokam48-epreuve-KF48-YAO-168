@@ -1,8 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ApiError } from "@/core/api/types";
-import type { LigneTableau, SessionOuverteReponse } from "@/core/api/types";
+import { ApiError, CODES_ERREUR } from "@/core/api/types";
+import type {
+  EtudiantResume,
+  LigneTableau,
+  SessionOuverteReponse,
+} from "@/core/api/types";
+import { ajouterPresenceManuelle } from "@/features/presence/api/ajouterPresenceManuelle";
+import { listerEtudiants } from "@/features/promotion/api/listerEtudiants";
 import { cloturerSession } from "@/features/session/api/cloturerSession";
 import { ouvrirSession } from "@/features/session/api/ouvrirSession";
 import {
@@ -14,7 +20,7 @@ import {
 import { consulterTableau } from "@/features/tableau/api/consulterTableau";
 
 /** Section de l'écran à laquelle rattacher une erreur. */
-type Etape = "session" | "cloture" | "tableau";
+type Etape = "session" | "cloture" | "tableau" | "presence";
 
 /** Forme affichable d'une erreur : le `code` imposé par le contrat + son message. */
 interface ErreurAffichee {
@@ -63,7 +69,8 @@ function formaterMoyenne(moyenne: number | null): string {
 
 /**
  * Écran formateur — EF1 (ouvrir une session et lire son code de présence),
- * EF11 (clôturer une session) et EF9 (tableau de bord de la promotion).
+ * EF11 (clôturer une session), EF9 (tableau de bord de la promotion) et EF10
+ * (ajouter une présence manuellement).
  *
  * Aucune règle métier n'est recalculée ici (F3) : la moyenne, les compteurs,
  * l'état « en attente » et l'état « clôturée » viennent du serveur.
@@ -79,6 +86,16 @@ export default function EcranFormateur() {
 
   const [sessions, setSessions] = useState<SessionEnregistree[]>([]);
   const [cloture, setCloture] = useState<number | null>(null);
+
+  // EF10 — session choisie pour l'ajout manuel, et étudiants de sa promotion.
+  const [sessionPresence, setSessionPresence] = useState<number | null>(null);
+  const [etudiants, setEtudiants] = useState<EtudiantResume[]>([]);
+  const [chargementEtudiants, setChargementEtudiants] = useState(false);
+  // Étudiants que le serveur a confirmés présents sur cette session, avec le
+  // libellé à afficher. Rien n'est déduit ici : le 201 et le 409 font foi.
+  const [presents, setPresents] = useState<Map<number, string>>(new Map());
+  const [confirmation, setConfirmation] = useState<number | null>(null);
+  const [ajout, setAjout] = useState<number | null>(null);
 
   const [erreur, setErreur] = useState<ErreurAffichee | null>(null);
 
@@ -136,6 +153,76 @@ export default function EcranFormateur() {
       setErreur(versErreur(echec, "cloture", "Impossible de clôturer cette session."));
     } finally {
       setCloture(null);
+    }
+  }
+
+  async function choisirLaSession(valeur: string) {
+    setConfirmation(null);
+    setErreur(null);
+    // « Présent » ne se dit que pour une session donnée : changer de session
+    // remet la liste des étudiants et l'état affiché à zéro.
+    setEtudiants([]);
+    setPresents(new Map());
+
+    if (valeur === "") {
+      setSessionPresence(null);
+      return;
+    }
+
+    const sessionId = Number(valeur);
+    setSessionPresence(sessionId);
+
+    const choisie = sessions.find((connue) => connue.id === sessionId);
+    if (choisie === undefined) {
+      return;
+    }
+
+    setChargementEtudiants(true);
+    try {
+      setEtudiants(await listerEtudiants(choisie.promotionId));
+    } catch (echec) {
+      setErreur(
+        versErreur(echec, "presence", "Impossible de charger les étudiants de la promotion."),
+      );
+    } finally {
+      setChargementEtudiants(false);
+    }
+  }
+
+  function retenirPresent(etudiantId: number, libelle: string) {
+    setPresents((precedents) => new Map(precedents).set(etudiantId, libelle));
+  }
+
+  async function ajouterLaPresence(etudiantId: number) {
+    if (sessionPresence === null || ajout !== null) {
+      return;
+    }
+
+    setAjout(etudiantId);
+    setErreur(null);
+
+    try {
+      const ajoutee = await ajouterPresenceManuelle({
+        sessionId: sessionPresence,
+        etudiantId,
+      });
+      // La source affichée est celle que le serveur a enregistrée (RG12).
+      retenirPresent(ajoutee.etudiantId, `Présent — source ${ajoutee.source}`);
+      setConfirmation(null);
+    } catch (echec) {
+      if (echec instanceof ApiError && echec.code === CODES_ERREUR.DEJA_PRESENT) {
+        // Refus attendu, pas un incident : le serveur dit que la présence existe
+        // déjà. L'écran l'enregistre au lieu de le supposer — le contrat n'offre
+        // aucune opération qui relirait les présences d'une session.
+        retenirPresent(etudiantId, "Déjà présent");
+        setConfirmation(null);
+      } else {
+        setErreur(
+          versErreur(echec, "presence", "La présence n'a pas pu être enregistrée."),
+        );
+      }
+    } finally {
+      setAjout(null);
     }
   }
 
@@ -396,6 +483,108 @@ export default function EcranFormateur() {
         )}
 
         {erreur?.etape === "tableau" && <BlocErreur erreur={erreur} />}
+      </section>
+
+      <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-5">
+        <h2 className="text-sm font-medium">4. Ajouter une présence (EF10)</h2>
+
+        <p className="text-xs text-slate-500">
+          Pour un étudiant qui n&apos;a pas pu saisir le code. Le serveur
+          enregistre la présence avec la source « FORMATEUR », donc distinguable
+          de celles que les étudiants marquent eux-mêmes (RG12). Aucun code
+          n&apos;est demandé, et la clôture ne la bloque pas : elle ne gèle que
+          les dépôts et les notes.
+        </p>
+
+        <div>
+          <label htmlFor="sessionPresence" className="block text-sm font-medium">
+            Session
+          </label>
+          <select
+            id="sessionPresence"
+            value={sessionPresence === null ? "" : String(sessionPresence)}
+            onChange={(evenement) => void choisirLaSession(evenement.target.value)}
+            className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="">Choisissez une session…</option>
+            {sessions.map((enregistree) => (
+              <option key={enregistree.id} value={enregistree.id}>
+                {enregistree.titre} — session n°{enregistree.id}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-slate-500">
+            {sessions.length === 0
+              ? "Ouvrez d'abord une session : cette liste ne connaît que celles ouvertes depuis ce navigateur."
+              : "Seules les sessions ouvertes depuis ce navigateur sont proposées : c'est la seule lecture de session dont dispose cet écran."}
+          </p>
+        </div>
+
+        {chargementEtudiants && (
+          <p role="status" className="text-sm text-slate-600">
+            Chargement des étudiants…
+          </p>
+        )}
+
+        {sessionPresence !== null && !chargementEtudiants && etudiants.length === 0 && (
+          <p className="text-sm text-slate-500">
+            Cette promotion ne contient aucun étudiant.
+          </p>
+        )}
+
+        {etudiants.length > 0 && (
+          <ul aria-label="Étudiants à marquer présents" className="flex flex-col gap-2">
+            {etudiants.map((etudiant) => {
+              const present = presents.get(etudiant.id);
+              return (
+                <li
+                  key={etudiant.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <span>
+                    {etudiant.prenom} {etudiant.nom}
+                  </span>
+
+                  {present !== undefined ? (
+                    // Confirmé par le serveur : 201 (créée) ou 409 (déjà présente).
+                    <span className="rounded bg-slate-200 px-2 py-1 text-xs font-medium text-slate-700">
+                      {present}
+                    </span>
+                  ) : confirmation === etudiant.id ? (
+                    <span className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={ajout === etudiant.id}
+                        onClick={() => void ajouterLaPresence(etudiant.id)}
+                        className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                      >
+                        {ajout === etudiant.id ? "Enregistrement…" : "Confirmer"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={ajout === etudiant.id}
+                        onClick={() => setConfirmation(null)}
+                        className="rounded border border-slate-300 px-3 py-1 text-xs font-medium disabled:opacity-50"
+                      >
+                        Annuler
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmation(etudiant.id)}
+                      className="rounded border border-slate-300 px-3 py-1 text-xs font-medium"
+                    >
+                      Marquer présent
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {erreur?.etape === "presence" && <BlocErreur erreur={erreur} />}
       </section>
     </section>
   );
