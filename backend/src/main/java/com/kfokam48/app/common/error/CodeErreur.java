@@ -30,6 +30,18 @@ public enum CodeErreur {
     /** EF2 (RG3) — 5 échecs de saisie atteints, étudiant bloqué 2 minutes (contrat : {@code 429}). */
     TROP_DE_TENTATIVES,
 
+    /** EF3 — la session visée n'existe pas. */
+    SESSION_INCONNUE,
+
+    /** EF3 — le lien de l'exercice n'est pas une URL http(s) exploitable (contrat : {@code 400}). */
+    LIEN_INVALIDE,
+
+    /** EF3 — l'étudiant a déjà un exercice sur cette session (contrat : {@code 409}). */
+    EXERCICE_DEJA_DEPOSE,
+
+    /** EF3 (RG10/RG14) — la session est clôturée, plus aucun dépôt n'est accepté (contrat : {@code 409}). */
+    SESSION_CLOTUREE,
+
     /** Requête HTTP refusée par Spring MVC (404, 405, ...). */
     DEMANDE_INVALIDE,
 

@@ -19,6 +19,10 @@ export const CODES_ERREUR = {
   CODE_EXPIRE: "CODE_EXPIRE",
   DEJA_PRESENT: "DEJA_PRESENT",
   TROP_DE_TENTATIVES: "TROP_DE_TENTATIVES",
+  SESSION_INCONNUE: "SESSION_INCONNUE",
+  LIEN_INVALIDE: "LIEN_INVALIDE",
+  EXERCICE_DEJA_DEPOSE: "EXERCICE_DEJA_DEPOSE",
+  SESSION_CLOTUREE: "SESSION_CLOTUREE",
   SERVEUR_INJOIGNABLE: "SERVEUR_INJOIGNABLE",
   DELAI_DEPASSE: "DELAI_DEPASSE",
 } as const;
@@ -89,4 +93,20 @@ export interface PresenceReponse {
   sessionId: number;
   etudiantId: number;
   source: SourcePresence;
+}
+
+/** Cycle de vie d'un exercice (D4) — toujours déterminé par le serveur. */
+export type StatutExercice = "DEPOSE" | "EN_ATTENTE_RELECTURE" | "RELU";
+
+/** Corps de POST /api/exercices (EF3) — noms de champs imposés par le contrat. */
+export interface DepotExerciceRequete {
+  sessionId: number;
+  etudiantId: number;
+  lien: string;
+}
+
+/** Réponse 201 de POST /api/exercices (EF3). */
+export interface ExerciceDeposeReponse {
+  id: number;
+  statut: StatutExercice;
 }

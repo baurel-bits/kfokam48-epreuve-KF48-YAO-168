@@ -24,6 +24,12 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # Un schéma préexistant non vide (outil externe, ancienne version du projet)
+    # fait échouer Flyway faute d'historique. `baseline-version: 0` est essentiel :
+    # avec la valeur par défaut (1), V1 serait considérée comme déjà appliquée et le
+    # schéma ne serait jamais créé. Sur un schéma vide, ces réglages sont sans effet.
+    baseline-on-migrate: true
+    baseline-version: 0
 
 springdoc:
   api-docs:

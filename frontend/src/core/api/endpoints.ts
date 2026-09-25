@@ -16,6 +16,11 @@ export const ENDPOINTS = {
     MARQUER: "/api/presences",
   },
 
+  /** EF3 — l'étudiant dépose le lien de son exercice. */
+  EXERCICES: {
+    DEPOSER: "/api/exercices",
+  },
+
   /**
    * Prérequis Q1 — l'étudiant est choisi dans une liste, le sujet excluant
    * l'authentification. Alimente les écrans étudiant (EF2, EF3) et formateur
