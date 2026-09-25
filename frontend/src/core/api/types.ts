@@ -50,7 +50,11 @@ export interface CreationSessionRequete {
   promotionId: number;
 }
 
-/** Réponse 201 de POST /api/sessions (EF1). Les dates sont des chaînes ISO-8601. */
+/**
+ * Réponse 201 de POST /api/sessions (EF1).
+ * Les deux instants sont du RFC 3339 avec décalage (`2026-09-25T13:49:57.12+01:00`),
+ * conformément au `format: date-time` du contrat.
+ */
 export interface SessionOuverteReponse {
   id: number;
   code: string;

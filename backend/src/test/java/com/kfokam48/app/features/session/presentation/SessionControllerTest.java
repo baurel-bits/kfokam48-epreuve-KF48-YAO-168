@@ -1,15 +1,18 @@
 package com.kfokam48.app.features.session.presentation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kfokam48.app.features.session.application.dto.SessionOuverteReponse;
 import java.time.Duration;
+import java.time.OffsetDateTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +33,9 @@ import org.springframework.test.web.servlet.MvcResult;
 @ActiveProfiles("test")
 class SessionControllerTest {
 
+    /** RFC 3339 : un instant doit porter un décalage, `Z` ou `±HH:MM`. */
+    private static final String OFFSET_RFC_3339 = ".*(Z|[+-][0-9]{2}:[0-9]{2})$";
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -49,6 +55,8 @@ class SessionControllerTest {
                 .andExpect(jsonPath("$.code").isNotEmpty())
                 .andExpect(jsonPath("$.ouvertureAt").isNotEmpty())
                 .andExpect(jsonPath("$.expirationAt").isNotEmpty())
+                .andExpect(jsonPath("$.ouvertureAt", matchesPattern(OFFSET_RFC_3339)))
+                .andExpect(jsonPath("$.expirationAt", matchesPattern(OFFSET_RFC_3339)))
                 .andReturn();
 
         SessionOuverteReponse reponse = objectMapper.readValue(
@@ -58,6 +66,25 @@ class SessionControllerTest {
         assertThat(reponse.code()).hasSize(6);
         assertThat(Duration.between(reponse.ouvertureAt(), reponse.expirationAt()))
                 .isEqualTo(Duration.ofMinutes(15));
+    }
+
+    @Test
+    @DisplayName("POST /api/sessions respecte le format date-time du contrat (RFC 3339, décalage explicite)")
+    void respecte_le_format_date_time_du_contrat() throws Exception {
+        String corpsJson = mockMvc.perform(post("/api/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"titre":"Cours du 25 septembre","promotionId":1}
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode corps = objectMapper.readTree(corpsJson);
+        // OffsetDateTime.parse est strict : il échoue si le décalage horaire est absent.
+        assertThat(OffsetDateTime.parse(corps.get("ouvertureAt").asText())).isNotNull();
+        assertThat(OffsetDateTime.parse(corps.get("expirationAt").asText())).isNotNull();
     }
 
     @Test
