@@ -87,6 +87,20 @@ l'origine du navigateur (CORS), affichage des erreurs du contrat, mise en page
 mobile (ENF1) et non-divulgation de l'identité de l'auteur au relecteur (RG6).
 Il se termine par un code de sortie non nul en cas d'échec.
 
+## Données de démonstration
+
+```bash
+node scripts/reinitialiser-donnees-demo.mjs --apercu   # montre ce qui serait supprimé
+node scripts/reinitialiser-donnees-demo.mjs            # supprime les sessions des runs automatisés
+node scripts/reinitialiser-donnees-demo.mjs --tout     # vide toutes les données d'usage
+```
+
+Le jeu de données de référence créé par la migration (`V2` : une promotion, cinq
+étudiants) est **toujours conservé** ; seules les données d'usage sont visées, et
+une sauvegarde des tables concernées est écrite dans `backup/` avant toute
+suppression. Par défaut, le script ne cible que les sessions produites par les
+vérifications automatisées, jamais celles ouvertes à la main dans l'interface.
+
 ## Organisation
 
 ```
