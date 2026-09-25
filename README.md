@@ -112,7 +112,8 @@ backend/src/main/resources/db/migration   Migrations Flyway versionnées
 frontend/src/app        Écrans (App Router)
 frontend/src/core/api   Couche d'appel API unique (aucun fetch dans un composant)
 frontend/src/features   Appels API par domaine fonctionnel
-scripts/                Outillage (backlog GitHub, parcours navigateur)
+scripts/                Outillage (backlog GitHub : création, enrichissement, fermeture des
+                        issues ; remise à zéro des données ; parcours navigateur)
 ```
 
 ## Limites connues
