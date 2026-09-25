@@ -1,0 +1,177 @@
+openapi: 3.0.3
+info:
+  title: Contrat imposé — Épreuve finale KFOKAM48
+  version: "1.0"
+  description: |
+    Les cinq opérations décrites ici doivent exister EXACTEMENT ainsi :
+    mêmes chemins, mêmes verbes, mêmes codes de statut, même format d'erreur.
+    Tout le reste de ton API est libre — ajoute tes propres opérations
+    dans ce même fichier, sous /api, avant ton premier commit de code.
+
+servers:
+  - url: http://localhost:8080
+
+paths:
+
+  /api/sessions:
+    post:
+      summary: Le formateur ouvre une session et obtient un code de présence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [titre, promotionId]
+              properties:
+                titre: { type: string }
+                promotionId: { type: integer, format: int64 }
+      responses:
+        "201":
+          description: Session ouverte
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, code, ouvertureAt, expirationAt]
+                properties:
+                  id: { type: integer, format: int64 }
+                  code: { type: string }
+                  ouvertureAt: { type: string, format: date-time }
+                  expirationAt: { type: string, format: date-time }
+        "400": { $ref: "#/components/responses/Erreur" }
+
+  /api/presences:
+    post:
+      summary: Un étudiant marque sa présence avec le code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, etudiantId]
+              properties:
+                code: { type: string }
+                etudiantId: { type: integer, format: int64 }
+      responses:
+        "201":
+          description: Présence enregistrée
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, sessionId, etudiantId, source]
+                properties:
+                  id: { type: integer, format: int64 }
+                  sessionId: { type: integer, format: int64 }
+                  etudiantId: { type: integer, format: int64 }
+                  source: { type: string, enum: [ETUDIANT, FORMATEUR] }
+        "400": { $ref: "#/components/responses/Erreur" }   # CODE_INCONNU
+        "409": { $ref: "#/components/responses/Erreur" }   # DEJA_PRESENT
+        "410": { $ref: "#/components/responses/Erreur" }   # CODE_EXPIRE
+
+  /api/exercices:
+    post:
+      summary: Un étudiant dépose le lien de son exercice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionId, etudiantId, lien]
+              properties:
+                sessionId: { type: integer, format: int64 }
+                etudiantId: { type: integer, format: int64 }
+                lien: { type: string, format: uri }
+      responses:
+        "201":
+          description: Exercice déposé
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, statut]
+                properties:
+                  id: { type: integer, format: int64 }
+                  statut: { type: string }
+        "400": { $ref: "#/components/responses/Erreur" }   # LIEN_INVALIDE
+        "409": { $ref: "#/components/responses/Erreur" }   # EXERCICE_DEJA_DEPOSE
+
+  /api/relectures/{id}:
+    post:
+      summary: Un relecteur rend sa note et son commentaire
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [note, commentaire]
+              properties:
+                note: { type: integer, minimum: 0, maximum: 20 }
+                commentaire: { type: string }
+      responses:
+        "200": { description: Relecture enregistrée }
+        "400": { $ref: "#/components/responses/Erreur" }   # NOTE_INVALIDE
+        "403": { $ref: "#/components/responses/Erreur" }   # AUTO_RELECTURE
+        "409": { $ref: "#/components/responses/Erreur" }   # RELECTURE_DEJA_RENDUE
+
+  /api/tableau:
+    get:
+      summary: Le tableau récapitulatif du formateur
+      parameters:
+        - name: promotionId
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Récapitulatif par étudiant
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    [etudiantId, nom, presences, exercicesDeposes, moyenne, relecturesEnAttente]
+                  properties:
+                    etudiantId: { type: integer, format: int64 }
+                    nom: { type: string }
+                    presences: { type: integer }
+                    exercicesDeposes: { type: integer }
+                    moyenne: { type: number, nullable: true }
+                    relecturesEnAttente: { type: integer }
+        "404": { $ref: "#/components/responses/Erreur" }   # PROMOTION_INCONNUE
+
+components:
+  schemas:
+    Erreur:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Identifiant stable, en majuscules. Exemple - CODE_EXPIRE
+        message:
+          type: string
+          description: Phrase lisible par un humain, en français
+  responses:
+    Erreur:
+      description: |
+        Format d'erreur imposé pour TOUTES les erreurs, sans exception.
+        Une stack trace, un corps vide ou la page d'erreur par défaut de Spring
+        valent zéro sur ce critère.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Erreur" }
+          example:
+            code: CODE_EXPIRE
+            message: Le code de présence a expiré.
