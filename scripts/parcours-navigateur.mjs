@@ -345,6 +345,18 @@ async function deroulerLeParcours(port) {
   const code = (texteFormateur.match(/\b[A-Z0-9]{6}\b/) ?? [])[0];
   verifier("La session s'ouvre depuis le navigateur et le code s'affiche", Boolean(code), `code=${code}`);
 
+  // Le code doit survivre à un rechargement : il n'est conservé que par le
+  // navigateur, le contrat n'offrant aucune opération qui relirait une session.
+  await cdp.envoyer("Page.navigate", { url: url("/formateur") });
+  await cdp.attendre(`document.querySelector('ul[aria-label="Sessions ouvertes"]') !== null`,
+    "liste des sessions retrouvée après rechargement", 8000);
+  await attendreHydratation(cdp);
+  const listeSessions = await cdp.evaluer(
+    `document.querySelector('ul[aria-label="Sessions ouvertes"]').innerText.split(String.fromCharCode(10)).join(" | ")`,
+  );
+  verifier("Le code de la session survit au rechargement de la page (correctif UX)",
+    Boolean(code) && listeSessions.includes(code), `code=${code} · liste=${listeSessions}`);
+
   // ---------- 3. Retour accueil, puis étudiant ----------
   console.log("\n3. Étudiant (/etudiant)");
   await cdp.envoyer("Page.navigate", { url: url("/") });

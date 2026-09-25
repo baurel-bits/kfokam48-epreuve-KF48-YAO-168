@@ -120,6 +120,12 @@ scripts/                Outillage (backlog GitHub, parcours navigateur)
   (Q1) ; l'étudiant se choisit dans une liste. La restriction « réservé au
   relecteur » (RG6) repose donc sur la comparaison d'identifiants, et non sur un
   véritable contrôle d'accès (voir `docs/CAHIER_DES_CHARGES.md`, section 11).
+- **Aucune relecture d'une session** : le contrat n'offre pas d'opération qui
+  renverrait une session (ni sa liste), et ses opérations additionnelles sont
+  réservées aux EF du cahier des charges. Le formateur ne peut donc revoir que
+  les sessions ouvertes **depuis son navigateur** : leur code y est mémorisé
+  localement, ce qui le préserve d'un rechargement de page sans ajouter de route
+  au contrat (voir `docs/CAHIER_DES_CHARGES.md`, section 11).
 - **Aucun envoi d'e-mail** : hors périmètre du sujet.
 - **Tableau de bord sans contrôle d'accès** (EF9, issue #14) : l'ébauche
   d'issue prévoyait qu'un formateur ne puisse pas consulter la promotion d'un
