@@ -34,6 +34,13 @@ stateDiagram-v2
 - **RG9 — « en attente » plutôt qu'ignoré** : tant que la relecture est `EN_ATTENTE`, l'étudiant voit son exercice avec une note nulle (état intermédiaire préexistant du diagramme) ; une fois `RENDUE`, il voit la note et le commentaire.
 - **Un exercice sans relecture n'apparaît pas** : l'opération liste les relectures de l'étudiant, pas ses exercices. C'est l'équivalence `DEPOSE` ⟺ aucune relecture (section EF5) qui produit ce cas ; l'exercice n'est pas perdu pour autant, il figure comme « non rendu » dans le tableau (RG9).
 
+## Implémentation (issue #15 — EF11, `POST /api/sessions/{id}/cloture`)
+
+- **`EN_ATTENTE_RELECTURE → RELU` devient infranchissable** : la clôture fait refuser `rendre` en `409 SESSION_CLOTUREE`, donc la transition de l'EF6 n'est plus atteignable. `RELU` reste un état terminal.
+- **`DEPOSE → EN_ATTENTE_RELECTURE` est fermée aussi** : le dépôt est refusé **avant** l'assignation, donc aucune relecture nouvelle n'est créée après la clôture.
+- **Aucune transition nouvelle** : la clôture ne change pas le statut d'un exercice. Un exercice resté `EN_ATTENTE_RELECTURE` — ou `DEPOSE` — le reste définitivement, ce qui rend vérifiable la règle « ces relectures restent en attente ».
+- **Le gel porte sur les transitions, pas sur les données** : ni le statut, ni la note, ni le lien déjà enregistrés ne sont modifiés ; seules les transitions entrantes sont fermées.
+
 ## Étape 2 — Implémentation de la v0.1
 
 * **Fait :** Initialisation des projets Spring Boot (Java 17) et React, création de la migration Flyway `V1__init_schema.sql`, implémentation de la gestion centralisée des erreurs API, mise en place des endpoints `/api/presences`, `/api/exercices` et `/api/tableau`, ainsi que le développement des 3 vues frontend.

@@ -200,3 +200,37 @@ Ces points des anciennes issues sont **abandonnés tant qu'ils ne sont pas tranc
 
 ### Livrables
 - Endpoint + service + DTO ; gestion des doublons ; tests unitaires et d'intégration.
+
+---
+
+## EF11
+
+### Points de gel (RG14)
+- **Dépôt d'exercice** → `409 SESSION_CLOTUREE`. En place depuis l'EF3 : le contrôle de clôture précède celui du doublon, si bien qu'un étudiant ayant déjà déposé reçoit bien `SESSION_CLOTUREE`.
+- **Notation** → `409 SESSION_CLOTUREE` sur `POST /api/relectures/{id}`. Le contrôle est placé **avant** `RELECTURE_DEJA_RENDUE` : une session clôturée interdit aussi la correction de l'EF7 (RG8), donc renvoyer l'appelant vers l'EF7 serait trompeur.
+- **Remplacement de lien** (EF4) et **correction de note** (EF7) : le même gel les attend (RG11, RG8). Ces deux issues étant hors de la v0.1, le contrôle arrivera avec elles.
+
+### Ce que la clôture ne fait pas
+- Elle ne touche ni aux présences, ni aux exercices, ni aux relectures déjà enregistrés : le contrat dit « gèle tout **dépôt** et toute **notation** », et l'issue de référence ne mentionne que ces deux points. Marquer sa présence avec un code encore valide reste donc possible.
+- Elle ne « solde » pas les relectures en attente : elles le restent définitivement, sans erreur et sans disparaître des missions du relecteur.
+
+### Décision — reclôturer une session
+Le contrat ne déclare que `200` et `404` sur cette opération : clôturer une session **déjà** clôturée répond donc `200` sans rien réécrire, plutôt qu'un `409` qui n'y figure pas. Un `409` aurait de toute façon été ambigu, ce code servant déjà à refuser une action *sur* une session clôturée.
+
+### Tests backend
+- Clôture valide → `200 { id, cloturee: true }`, et `session.cloturee` vaut bien `true` en base.
+- Session inconnue → `404 SESSION_INCONNUE`, au format `{ code, message }` sans stack trace.
+- Reclôture → `200`, sans réécriture (aucun `save` supplémentaire).
+- Dépôt d'exercice après clôture → `409 SESSION_CLOTUREE` (couvert par l'EF3).
+- Notation après clôture → `409 SESSION_CLOTUREE`, et **rien n'est écrit** : la relecture reste `EN_ATTENTE`, l'exercice ne passe pas à `RELU` (D4).
+- Sur une session clôturée, la clôture prime sur « déjà rendue » (décision ci-dessus).
+- Une relecture restée en attente à la clôture reste listée dans les missions du relecteur.
+
+### Contraintes techniques
+- **Aucune migration** : `session.cloturee` existe depuis `V1`, B5 n'est donc pas sollicité.
+- **Aucune opération ajoutée au contrat** : `POST /api/sessions/{id}/cloture` y figurait déjà.
+- Le `409` de la notation ne fait qu'ajouter un `code` à un statut **déjà déclaré** sur `POST /api/relectures/{id}`.
+
+### Livrables
+- Endpoint + service + DTO de sortie ; tests unitaires (clôture, idempotence, gel de la notation) et d'intégration (200 / 404, notation refusée, dépôt refusé).
+- Frontend : bouton **Clôturer** sur les sessions de l'écran formateur, et état « Clôturée — dépôts et notes gelés » tel que renvoyé par le serveur.

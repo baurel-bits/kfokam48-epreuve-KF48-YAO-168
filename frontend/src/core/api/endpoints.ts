@@ -9,6 +9,8 @@ export const ENDPOINTS = {
   /** EF1 — le formateur ouvre une session et obtient un code de présence. */
   SESSIONS: {
     OUVRIR: "/api/sessions",
+    /** EF11 — clôture définitive : dépôts et notes de la session sont gelés (RG14). */
+    CLOTURER: (sessionId: number) => `/api/sessions/${sessionId}/cloture`,
   },
 
   /** EF2 — l'étudiant marque sa présence avec le code dicté par le formateur. */

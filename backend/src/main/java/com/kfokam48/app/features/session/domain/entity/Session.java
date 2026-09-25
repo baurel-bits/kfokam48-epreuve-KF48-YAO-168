@@ -52,6 +52,15 @@ public class Session {
         this.cloturee = false;
     }
 
+    /**
+     * EF11/RG14 : la clôture est définitive. Elle ne touche ni aux présences ni
+     * aux relectures déjà enregistrées — elle empêche seulement d'en créer ou
+     * d'en corriger désormais.
+     */
+    public void cloturer() {
+        this.cloturee = true;
+    }
+
     public Long getId() {
         return id;
     }

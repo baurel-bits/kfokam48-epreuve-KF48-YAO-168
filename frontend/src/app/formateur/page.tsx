@@ -3,16 +3,18 @@
 import { useEffect, useState } from "react";
 import { ApiError } from "@/core/api/types";
 import type { LigneTableau, SessionOuverteReponse } from "@/core/api/types";
+import { cloturerSession } from "@/features/session/api/cloturerSession";
 import { ouvrirSession } from "@/features/session/api/ouvrirSession";
 import {
   enregistrerSessionOuverte,
   lireSessionsOuvertes,
+  marquerSessionCloturee,
   type SessionEnregistree,
 } from "@/features/session/sessionsOuvertes";
 import { consulterTableau } from "@/features/tableau/api/consulterTableau";
 
 /** Section de l'écran à laquelle rattacher une erreur. */
-type Etape = "session" | "tableau";
+type Etape = "session" | "cloture" | "tableau";
 
 /** Forme affichable d'une erreur : le `code` imposé par le contrat + son message. */
 interface ErreurAffichee {
@@ -60,11 +62,11 @@ function formaterMoyenne(moyenne: number | null): string {
 }
 
 /**
- * Écran formateur — EF1 (ouvrir une session et lire son code de présence) et
- * EF9 (tableau de bord de la promotion).
+ * Écran formateur — EF1 (ouvrir une session et lire son code de présence),
+ * EF11 (clôturer une session) et EF9 (tableau de bord de la promotion).
  *
- * Aucune règle métier n'est recalculée ici (F3) : la moyenne, les compteurs et
- * l'état « en attente » viennent du serveur, qui a déjà agrégé la promotion.
+ * Aucune règle métier n'est recalculée ici (F3) : la moyenne, les compteurs,
+ * l'état « en attente » et l'état « clôturée » viennent du serveur.
  */
 export default function EcranFormateur() {
   const [titre, setTitre] = useState("");
@@ -76,8 +78,12 @@ export default function EcranFormateur() {
   const [chargementTableau, setChargementTableau] = useState(false);
 
   const [sessions, setSessions] = useState<SessionEnregistree[]>([]);
+  const [cloture, setCloture] = useState<number | null>(null);
 
   const [erreur, setErreur] = useState<ErreurAffichee | null>(null);
+
+  const sessionCouranteCloturee =
+    session !== null && sessions.some((connue) => connue.id === session.id && connue.cloturee);
 
   // Le stockage local n'existe pas au rendu serveur : la liste est lue après
   // montage, sinon le HTML initial divergerait de celui du navigateur.
@@ -108,6 +114,28 @@ export default function EcranFormateur() {
       );
     } finally {
       setChargement(false);
+    }
+  }
+
+  async function cloturerUneSession(sessionId: number) {
+    if (cloture === sessionId) {
+      return;
+    }
+
+    setCloture(sessionId);
+    setErreur(null);
+
+    try {
+      const reponse = await cloturerSession(sessionId);
+      // L'état affiché vient du serveur : il est simplement reporté dans la liste
+      // locale, qui est la seule trace disponible faute d'opération de relecture.
+      if (reponse.cloturee) {
+        setSessions(marquerSessionCloturee(reponse.id));
+      }
+    } catch (echec) {
+      setErreur(versErreur(echec, "cloture", "Impossible de clôturer cette session."));
+    } finally {
+      setCloture(null);
     }
   }
 
@@ -224,6 +252,12 @@ export default function EcranFormateur() {
               <dd className="inline">{formaterDate(session.expirationAt)}</dd>
             </div>
           </dl>
+          {sessionCouranteCloturee && (
+            <p className="mt-3 text-sm font-medium text-slate-700">
+              Session clôturée : les dépôts et les notes sont désormais refusés par
+              le serveur (RG14).
+            </p>
+          )}
         </div>
       )}
 
@@ -267,10 +301,30 @@ export default function EcranFormateur() {
                   ouverte le {formaterDate(enregistree.ouvertureAt)} · expire le{" "}
                   {formaterDate(enregistree.expirationAt)}
                 </p>
+
+                <div className="mt-2">
+                  {enregistree.cloturee ? (
+                    // État renvoyé par le serveur à la clôture, jamais recalculé ici.
+                    <span className="rounded bg-slate-200 px-2 py-1 text-xs font-medium text-slate-700">
+                      Clôturée — dépôts et notes gelés
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={cloture === enregistree.id}
+                      onClick={() => cloturerUneSession(enregistree.id)}
+                      className="rounded border border-slate-300 px-3 py-1 text-xs font-medium disabled:opacity-50"
+                    >
+                      {cloture === enregistree.id ? "Clôture…" : "Clôturer"}
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
         )}
+
+        {erreur?.etape === "cloture" && <BlocErreur erreur={erreur} />}
       </section>
 
       <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-5">

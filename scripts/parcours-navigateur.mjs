@@ -552,6 +552,51 @@ async function deroulerLeParcours(port) {
   verifier("EF9 : un étudiant sans note affiche un tiret, jamais 0 (la moyenne vient du serveur)",
     tableauVisible && contenuTableau.includes("—"), contenuTableau);
 
+  // 4e. Le formateur clôture la session : dépôts et notes sont gelés (EF11, RG14).
+  await cdp.envoyer("Page.navigate", { url: url("/formateur") });
+  await cdp.attendre(`document.querySelector('ul[aria-label="Sessions ouvertes"]') !== null`,
+    "liste des sessions affichée", 8000);
+  await attendreHydratation(cdp);
+  await cdp.evaluer(
+    `[...document.querySelectorAll('ul[aria-label="Sessions ouvertes"] button')]
+      .find((b) => b.textContent.includes("Clôturer")).click()`,
+  );
+
+  let clotureVisible = true;
+  try {
+    await cdp.attendre(`document.body.innerText.includes("Clôturée")`, "état clôturé affiché", 8000);
+  } catch {
+    clotureVisible = false;
+  }
+  const listeApresCloture = await cdp.evaluer(
+    `document.querySelector('ul[aria-label="Sessions ouvertes"]').innerText.split(String.fromCharCode(10)).join(" | ")`,
+  );
+  verifier("EF11 : la clôture de la session est enregistrée et affichée", clotureVisible,
+    listeApresCloture);
+
+  // Le dépôt doit désormais être refusé par le serveur, avec le code du contrat.
+  const sessionIdParcours = (listeSessions.match(/Session n°(\d+)/) ?? [])[1];
+  await cdp.envoyer("Page.navigate", { url: url("/etudiant") });
+  await cdp.attendre(`document.querySelector("#promotionId") !== null`, "écran étudiant affiché");
+  await attendreHydratation(cdp);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(1) button[type="submit"]'));
+  await cdp.attendre(`document.querySelectorAll("ul li button").length > 1`, "liste des étudiants", 8000);
+  await cdp.evaluer(`document.querySelectorAll("ul li button")[1].click()`);
+  await cdp.evaluer(`${REMPLIR}; remplir("#sessionId", ${JSON.stringify(sessionIdParcours ?? "")})`);
+  await cdp.evaluer(`${REMPLIR}; remplir("#lien", "https://exemple.org/apres-cloture.pdf")`);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(3) button[type="submit"]'));
+
+  let refusVisible = true;
+  try {
+    await cdp.attendre(`document.body.innerText.includes("SESSION_CLOTUREE")`, "refus de dépôt", 8000);
+  } catch {
+    refusVisible = false;
+  }
+  verifier("EF11/RG14 : après clôture, le dépôt est refusé avec le code SESSION_CLOTUREE", refusVisible,
+    await cdp.evaluer(
+      `(document.querySelector('[role="alert"]')?.innerText ?? "(aucun)").split(String.fromCharCode(10)).join(" ")`,
+    ));
+
   // ---------- 5. Chemin d'erreur et affichage mobile ----------
   console.log("\n5. Chemin d'erreur et affichage mobile");
 
@@ -592,11 +637,15 @@ async function deroulerLeParcours(port) {
   verifier("Aucune exception JavaScript", exceptions.length === 0, exceptions.slice(0, 3).join(" | "));
   verifier("Aucune erreur console", erreursConsole.length === 0, erreursConsole.slice(0, 3).join(" | "));
 
-  // Deux entrées attendues sont exclues du contrôle : le 400 provoqué par le code
-  // inconnu (étape 4), et le chargement de page que ce script interrompt lui-même
-  // en naviguant (Chrome démarre sur BASE_URL, puis le pilote prend la main).
+  // Trois entrées attendues sont exclues du contrôle : le 400 provoqué par le code
+  // inconnu (étape 5), le 409 provoqué par le dépôt sur la session clôturée
+  // (étape 4e, c'est le comportement vérifié), et le chargement de page que ce
+  // script interrompt lui-même en naviguant (Chrome démarre sur BASE_URL, puis le
+  // pilote prend la main).
   const inattendues = requetesEnEchec.filter(
-    (e) => !e.includes(`HTTP 400 ${API_URL}/api/presences`) && !e.includes("net::ERR_ABORTED (Document)"),
+    (e) => !e.includes(`HTTP 400 ${API_URL}/api/presences`)
+      && !e.includes(`HTTP 409 ${API_URL}/api/exercices`)
+      && !e.includes("net::ERR_ABORTED (Document)"),
   );
   verifier("Aucune requête réseau en échec hors refus provoqué", inattendues.length === 0,
     inattendues.slice(0, 4).join(" | ")

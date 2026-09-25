@@ -80,6 +80,15 @@ export interface SessionOuverteReponse {
   expirationAt: string;
 }
 
+/**
+ * Réponse 200 de POST /api/sessions/{id}/cloture (EF11) — les deux champs du
+ * contrat. `cloturee` vient du serveur : l'écran l'affiche, il ne le déduit pas.
+ */
+export interface SessionClotureeReponse {
+  id: number;
+  cloturee: boolean;
+}
+
 /** Origine d'une présence : jamais choisie par le client (D2). */
 export type SourcePresence = "ETUDIANT" | "FORMATEUR";
 
