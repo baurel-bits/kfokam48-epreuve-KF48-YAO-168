@@ -162,12 +162,29 @@ function tracer(ef) {
   const branches = git("branch", "--list", "--format=%(refname:short)", `*ef${ef}-*`)
     .split("\n")
     .filter(Boolean);
-  return { commit: commits[0] ?? "", nombre: commits.length, branche: branches[0] ?? "" };
+  return {
+    commit: commits[0] ?? "",
+    nombre: commits.length,
+    branche: branches[0] ?? "",
+    fusion: fusion(branches[0] ?? ""),
+  };
+}
+
+/**
+ * Merge de cette branche sur `main`, s'il a déjà eu lieu : les branches sont
+ * empilées, donc chaque fusion apporte les commits de son issue en plus de ceux
+ * de la précédente.
+ */
+function fusion(branche) {
+  if (!branche) return "";
+  return git("log", "main", "--merges", "--format=%h %s", "-F", `--grep=${branche}`)
+    .split("\n")
+    .filter(Boolean)[0] ?? "";
 }
 
 function commentaire(ef) {
   const livraison = LIVRAISONS[ef];
-  const { commit, nombre, branche } = tracer(ef);
+  const { commit, nombre, branche, fusion: merge } = tracer(ef);
 
   const lignes = [
     `### Livré — EF${ef}`,
@@ -182,6 +199,7 @@ function commentaire(ef) {
     "",
     `- Branche : \`${branche || "(non identifiée)"}\`${nombre > 0 ? ` — ${nombre} commit(s)` : ""}`,
     commit ? `- Dernier commit : \`${commit}\`` : "- Commit : non identifié automatiquement",
+    merge ? `- Fusion sur \`main\` : \`${merge}\`` : "- Fusion sur `main` : à faire",
     "- Écarts tranchés : `docs/CAHIER_DES_CHARGES.md`, section 11",
   ];
 
@@ -193,7 +211,9 @@ function commentaire(ef) {
     "",
     "---",
     "",
-    "Branche poussée, sans PR : le suivi de cette épreuve se fait par commit direct sur la branche de l'issue. La fusion sur `main` reste à faire.",
+    merge
+      ? "Fusionnée sur `main`. Pas de PR : le suivi de cette épreuve se fait par commit direct sur la branche de l'issue, fusionnée ensuite dans l'ordre des branches empilées."
+      : "Branche poussée, pas encore fusionnée sur `main`. Pas de PR : le suivi de cette épreuve se fait par commit direct sur la branche de l'issue.",
   );
 
   return lignes.join("\n");
@@ -229,10 +249,11 @@ for (const ef of Object.keys(LIVRAISONS).map(Number)) {
     continue;
   }
 
-  const { commit, branche } = tracer(ef);
+  const { commit, branche, fusion: merge } = tracer(ef);
   console.log(
     `  ${APERCU ? "→" : "✔"} #${issue.number} ${label} « ${issue.title} »` +
-      `${branche ? `\n      ${branche}` : ""}${commit ? ` · ${commit}` : ""}`,
+      `${branche ? `\n      ${branche}` : ""}${commit ? ` · ${commit}` : ""}` +
+      `${merge ? `\n      fusionnée sur main : ${merge}` : "\n      PAS ENCORE FUSIONNÉE sur main"}`,
   );
 
   if (APERCU) continue;
