@@ -51,6 +51,9 @@ docker-data/
 *.jks
 *.keystore
 
-# Surcharges locales (SMTP / config locale hors perimetre)
+# Surcharges locales de configuration
 application-local.yml
 application-local.yaml
+
+# Sauvegardes locales (jetables, non versionnees)
+backup/
