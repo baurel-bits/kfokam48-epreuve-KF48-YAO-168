@@ -454,6 +454,38 @@ async function deroulerLeParcours(port) {
   verifier("EF5 : l'exercice passe en EN_ATTENTE_RELECTURE, un relecteur est assigné",
     /statut : EN_ATTENTE_RELECTURE/.test(detailDepot), detailDepot);
 
+  // 3e. EF4 : le remplacement du lien est refusé dès qu'une relecture a été
+  // commencée — le relecteur est tiré au dépôt, avant toute note (RG11).
+  await cdp.evaluer(
+    `[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Remplacer le lien")).click()`,
+  );
+  await cdp.attendre(`document.querySelector("#nouveauLien") !== null`,
+    "formulaire de remplacement affiché", 8000);
+  verifier("EF4 : le remplacement repart du lien déposé, sans ressaisie",
+    (await cdp.evaluer(`document.querySelector("#nouveauLien").value`))
+      === "https://exemple.org/parcours-navigateur.pdf",
+    await cdp.evaluer(`document.querySelector("#nouveauLien").value`));
+
+  await cdp.evaluer(
+    `${REMPLIR}; remplir("#nouveauLien", "https://exemple.org/parcours-navigateur-v2.pdf")`,
+  );
+  await cdp.evaluer(
+    `[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Enregistrer le nouveau lien")).click()`,
+  );
+
+  let refusRemplacement = true;
+  try {
+    await cdp.attendre(`document.body.innerText.includes("RELECTURE_COMMENCEE")`,
+      "refus de remplacement", 8000);
+  } catch {
+    refusRemplacement = false;
+  }
+  verifier("EF4/RG11 : une relecture commencée refuse le remplacement du lien",
+    refusRemplacement,
+    await cdp.evaluer(
+      `(document.querySelector('[role="alert"]')?.innerText ?? "(aucun)").split(String.fromCharCode(10)).join(" ")`,
+    ));
+
   // ---------- 4. Relecteur : rendre sa note (EF6) puis la corriger (EF7) ----------
   console.log("\n4. Relecteur (/relecteur)");
   await cdp.envoyer("Page.navigate", { url: url("/") });
@@ -829,8 +861,72 @@ async function deroulerLeParcours(port) {
     )),
     await cdp.evaluer(`${liEtudiant(2)}.innerText.split(String.fromCharCode(10)).join(" ").trim()`));
 
-  // ---------- 6. Chemin d'erreur et affichage mobile ----------
-  console.log("\n6. Chemin d'erreur et affichage mobile");
+  // ---------- 6. EF4 : remplacer le lien d'un exercice sans relecture ----------
+  console.log("\n6. Remplacement de lien (/etudiant)");
+
+  // Un seul étudiant présent : personne d'autre n'est là, donc aucun relecteur ne
+  // peut être tiré (RG4/RG13) et l'exercice reste DEPOSE. C'est la seule situation
+  // où RG11 autorise un remplacement.
+  await cdp.envoyer("Page.navigate", { url: url("/formateur") });
+  await cdp.attendre(`document.querySelector("#titre") !== null`, "écran formateur affiché");
+  await attendreHydratation(cdp);
+  const titreSolo = `Parcours navigateur EF4 ${new Date().toISOString().slice(11, 19)}`;
+  await cdp.evaluer(`${REMPLIR}; remplir("#titre", ${JSON.stringify(titreSolo)})`);
+  await cdp.evaluer(`${REMPLIR}; remplir("#promotionId", "1")`);
+  await cdp.evaluer(cliquerSur('form button[type="submit"]'));
+  await cdp.attendre(`document.body.innerText.includes("Session ouverte")`, "session EF4 ouverte");
+  const codeSolo = await cdp.evaluer(`document.querySelector("p.font-mono")?.innerText.trim() ?? ""`);
+
+  await cdp.envoyer("Page.navigate", { url: url("/etudiant") });
+  await cdp.attendre(`document.querySelector("#promotionId") !== null`, "écran étudiant affiché");
+  await attendreHydratation(cdp);
+  await cdp.evaluer(`${REMPLIR}; remplir("#promotionId", "1")`);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(1) button[type="submit"]'));
+  await cdp.attendre(`document.querySelectorAll("ul li button").length > 3`, "liste des étudiants", 8000);
+  // Le quatrième étudiant n'a été présent à aucune session de ce parcours.
+  await cdp.evaluer(`document.querySelectorAll("ul li button")[3].click()`);
+  await cdp.evaluer(`${REMPLIR}; remplir("#code", ${JSON.stringify(codeSolo)})`);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(2) button[type="submit"]'));
+  await cdp.attendre(`document.body.innerText.includes("Présence enregistrée")`,
+    "présence du seul étudiant", 8000);
+
+  await cdp.evaluer(`${REMPLIR}; remplir("#lien", "https://exemple.org/ef4-depot.pdf")`);
+  await cdp.evaluer(cliquerSur('form:nth-of-type(3) button[type="submit"]'));
+  await cdp.attendre(`document.body.innerText.includes("Exercice déposé")`,
+    "dépôt sans relecteur", 8000);
+  const detailSolo = await cdp.evaluer(
+    `document.body.innerText.match(/Exercice n°\\d+ — statut : \\w+/)?.[0] ?? ""`,
+  );
+  verifier("EF5 : sans autre présent, l'exercice reste DEPOSE (aucun relecteur éligible)",
+    /statut : DEPOSE/.test(detailSolo), detailSolo);
+
+  await cdp.evaluer(
+    `[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Remplacer le lien")).click()`,
+  );
+  await cdp.attendre(`document.querySelector("#nouveauLien") !== null`,
+    "formulaire de remplacement affiché", 8000);
+  await cdp.evaluer(
+    `${REMPLIR}; remplir("#nouveauLien", "https://exemple.org/ef4-depot-corrige.pdf")`,
+  );
+  await cdp.evaluer(
+    `[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Enregistrer le nouveau lien")).click()`,
+  );
+
+  let remplacementOk = true;
+  try {
+    await cdp.attendre(`document.body.innerText.includes("Lien remplacé")`,
+      "confirmation de remplacement", 8000);
+  } catch {
+    remplacementOk = false;
+  }
+  verifier("EF4 : le lien est remplacé, et le statut de l'exercice ne change pas",
+    remplacementOk && (await cdp.evaluer(`document.body.innerText.includes("ef4-depot-corrige.pdf")`)),
+    await cdp.evaluer(
+      `document.body.innerText.match(/Exercice n°\\d+ — statut : \\w+/)?.[0] ?? document.body.innerText.slice(0, 200)`,
+    ));
+
+  // ---------- 7. Chemin d'erreur et affichage mobile ----------
+  console.log("\n7. Chemin d'erreur et affichage mobile");
 
   // Un code inconnu doit afficher l'erreur du serveur, pas un écran cassé.
   await cdp.envoyer("Page.navigate", { url: url("/etudiant") });
@@ -864,15 +960,16 @@ async function deroulerLeParcours(port) {
   verifier("Aucun débordement horizontal sur 390 px de large (ENF1)", debordement <= 0, `débordement=${debordement}px`);
   await cdp.envoyer("Emulation.clearDeviceMetricsOverride");
 
-  // ---------- 7. Hygiène du navigateur ----------
-  console.log("\n7. Console et réseau");
+  // ---------- 8. Hygiène du navigateur ----------
+  console.log("\n8. Console et réseau");
   verifier("Aucune exception JavaScript", exceptions.length === 0, exceptions.slice(0, 3).join(" | "));
   verifier("Aucune erreur console", erreursConsole.length === 0, erreursConsole.slice(0, 3).join(" | "));
 
   // Entrées attendues, exclues du contrôle : le 400 provoqué par le code inconnu
-  // (étape 6), les 409 provoqués par le dépôt et par la notation sur une session
-  // clôturée (étapes 4e et 4f) et par le second ajout manuel de présence (étape 5)
-  // — c'est précisément le comportement vérifié —, ainsi que le chargement de page
+  // (étape 7), les 409 provoqués par le dépôt, par la notation sur une session
+  // clôturée (étapes 4f et 4g), par le second ajout manuel de présence (étape 5)
+  // et par le remplacement de lien refusé (étape 3e) — c'est précisément le
+  // comportement vérifié —, ainsi que le chargement de page
   // que ce script interrompt lui-même en naviguant (Chrome démarre sur BASE_URL,
   // puis le pilote prend la main).
   const inattendues = requetesEnEchec.filter(

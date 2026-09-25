@@ -132,7 +132,12 @@ export interface DepotExerciceRequete {
   lien: string;
 }
 
-/** Réponse 201 de POST /api/exercices (EF3). */
+/** Corps de PUT /api/exercices/{id}/lien (EF4) — champ imposé par le contrat. */
+export interface RemplacementLienRequete {
+  lien: string;
+}
+
+/** Réponse 201 de POST /api/exercices (EF3) et 200 de PUT /api/exercices/{id}/lien (EF4). */
 export interface ExerciceDeposeReponse {
   id: number;
   statut: StatutExercice;

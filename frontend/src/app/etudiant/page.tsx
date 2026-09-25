@@ -9,12 +9,13 @@ import type {
   PresenceReponse,
 } from "@/core/api/types";
 import { deposerExercice } from "@/features/exercice/api/deposerExercice";
+import { remplacerLien } from "@/features/exercice/api/remplacerLien";
 import { marquerPresence } from "@/features/presence/api/marquerPresence";
 import { listerEtudiants } from "@/features/promotion/api/listerEtudiants";
 import { listerNotesRecues } from "@/features/relecture/api/listerNotesRecues";
 
 /** Étape de l'écran à laquelle rattacher une erreur. */
-type Etape = "etudiants" | "presence" | "depot" | "notes";
+type Etape = "etudiants" | "presence" | "depot" | "remplacement" | "notes";
 
 /** Forme affichable d'une erreur : le `code` imposé par le contrat + son message. */
 interface ErreurAffichee {
@@ -43,8 +44,8 @@ function BlocErreur({ erreur }: { erreur: ErreurAffichee }) {
 }
 
 /**
- * Écran étudiant — EF2 (marquer sa présence), EF3 (déposer son exercice) et
- * EF8 (consulter ses notes reçues).
+ * Écran étudiant — EF2 (marquer sa présence), EF3 (déposer son exercice),
+ * EF4 (remplacer le lien de cet exercice) et EF8 (consulter ses notes reçues).
  * Vue mobile en priorité (ENF1) : une colonne, aucune largeur fixe, aucun
  * défilement horizontal. Aucune règle métier n'est recalculée ici (F3) :
  * format du lien, expiration du code, blocage RG3 et statut de l'exercice
@@ -63,6 +64,14 @@ export default function EcranEtudiant() {
   const [lien, setLien] = useState("");
   const [exercice, setExercice] = useState<ExerciceDeposeReponse | null>(null);
   const [chargementDepot, setChargementDepot] = useState(false);
+
+  // EF4 — le lien déposé n'est conservé que le temps de l'écran : le contrat
+  // n'offre aucune opération qui relirait les exercices d'un étudiant.
+  const [lienDepose, setLienDepose] = useState("");
+  const [remplacementOuvert, setRemplacementOuvert] = useState(false);
+  const [nouveauLien, setNouveauLien] = useState("");
+  const [exerciceRemplace, setExerciceRemplace] = useState<ExerciceDeposeReponse | null>(null);
+  const [chargementRemplacement, setChargementRemplacement] = useState(false);
 
   const [notes, setNotes] = useState<NoteRecue[] | null>(null);
   const [chargementNotes, setChargementNotes] = useState(false);
@@ -122,20 +131,71 @@ export default function EcranEtudiant() {
     setChargementDepot(true);
     setErreur(null);
     setExercice(null);
+    // Un nouveau dépôt remplace le contexte de l'exercice précédent.
+    fermerLeRemplacement();
+
+    const lienEnvoye = lien.trim();
 
     try {
       setExercice(
         await deposerExercice({
           sessionId: Number(sessionId),
           etudiantId,
-          lien: lien.trim(),
+          lien: lienEnvoye,
         }),
       );
+      setLienDepose(lienEnvoye);
       setLien("");
     } catch (echec) {
       setErreur(versErreur(echec, "depot", "Le dépôt n'a pas pu être enregistré."));
     } finally {
       setChargementDepot(false);
+    }
+  }
+
+  /**
+   * Ouvre le remplacement en repartant du lien déposé : l'étudiant corrige ce
+   * qu'il a envoyé, il ne le ressaisit pas de mémoire.
+   */
+  function ouvrirLeRemplacement() {
+    if (exercice === null) {
+      return;
+    }
+    setNouveauLien(lienDepose);
+    setExerciceRemplace(null);
+    setErreur(null);
+    setRemplacementOuvert(true);
+  }
+
+  function fermerLeRemplacement() {
+    setRemplacementOuvert(false);
+    setNouveauLien("");
+    setExerciceRemplace(null);
+  }
+
+  async function soumettreLeRemplacement(evenement: React.FormEvent<HTMLFormElement>) {
+    evenement.preventDefault();
+    if (exercice === null || chargementRemplacement) {
+      return;
+    }
+
+    setChargementRemplacement(true);
+    setErreur(null);
+    setExerciceRemplace(null);
+
+    const lienEnvoye = nouveauLien.trim();
+
+    try {
+      const reponse = await remplacerLien(exercice.id, { lien: lienEnvoye });
+      setExerciceRemplace(reponse);
+      // Le lien de référence devient celui que le serveur vient d'accepter.
+      setLienDepose(lienEnvoye);
+    } catch (echec) {
+      setErreur(
+        versErreur(echec, "remplacement", "Le remplacement du lien n'a pas pu être enregistré."),
+      );
+    } finally {
+      setChargementRemplacement(false);
     }
   }
 
@@ -355,7 +415,93 @@ export default function EcranEtudiant() {
       </form>
 
       <section className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="text-sm font-medium">4. Mes notes reçues</h2>
+        <h2 className="text-sm font-medium">4. Remplacer le lien de mon exercice</h2>
+
+        {exercice === null ? (
+          <p className="text-sm text-slate-500">
+            Déposez d&apos;abord un exercice à l&apos;étape 3 : cette section
+            s&apos;appuie sur l&apos;exercice que vous venez de déposer.
+          </p>
+        ) : (
+          <p className="text-sm text-slate-600">
+            Exercice n°{exercice.id} — statut : {exercice.statut}
+            {lienDepose !== "" && (
+              <span className="mt-1 block break-all text-xs text-slate-500">
+                Lien déposé : {lienDepose}
+              </span>
+            )}
+          </p>
+        )}
+
+        {exercice !== null && !remplacementOuvert && (
+          <button
+            type="button"
+            onClick={ouvrirLeRemplacement}
+            className="w-full rounded border border-slate-300 px-4 py-3 text-sm font-medium"
+          >
+            Remplacer le lien
+          </button>
+        )}
+
+        {exercice !== null && remplacementOuvert && (
+          <form onSubmit={soumettreLeRemplacement} className="flex flex-col gap-3">
+            <p className="text-xs text-slate-500">
+              Possible tant qu&apos;aucune relecture n&apos;a été commencée sur cet
+              exercice et que la session n&apos;est pas clôturée — c&apos;est le
+              serveur qui en décide.
+            </p>
+
+            <div>
+              <label htmlFor="nouveauLien" className="block text-sm text-slate-600">
+                Nouveau lien
+              </label>
+              <input
+                id="nouveauLien"
+                type="url"
+                required
+                autoComplete="off"
+                spellCheck={false}
+                value={nouveauLien}
+                onChange={(evenement) => setNouveauLien(evenement.target.value)}
+                placeholder="https://…"
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={chargementRemplacement}
+                className="flex-1 rounded bg-slate-900 px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {chargementRemplacement ? "Remplacement…" : "Enregistrer le nouveau lien"}
+              </button>
+              <button
+                type="button"
+                disabled={chargementRemplacement}
+                onClick={fermerLeRemplacement}
+                className="rounded border border-slate-300 px-4 py-3 text-sm font-medium disabled:opacity-50"
+              >
+                Annuler
+              </button>
+            </div>
+
+            {exerciceRemplace && (
+              <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                <p className="font-medium">Lien remplacé.</p>
+                <p className="mt-1">
+                  Exercice n°{exerciceRemplace.id} — statut : {exerciceRemplace.statut}
+                </p>
+              </div>
+            )}
+
+            {erreur?.etape === "remplacement" && <BlocErreur erreur={erreur} />}
+          </form>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4">
+        <h2 className="text-sm font-medium">5. Mes notes reçues</h2>
 
         <p className="text-xs text-slate-500">
           La note et le commentaire reçus pour vos exercices. Le nom de votre

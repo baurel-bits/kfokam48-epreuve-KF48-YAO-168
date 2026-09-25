@@ -63,13 +63,13 @@ par F2 :
 | Écran | Chemin | Contenu |
 |---|---|---|
 | Formateur | `/formateur` | EF1 — ouvrir une session et obtenir le code · EF11 — clôturer (gel des dépôts et des notes) · EF9 — tableau de bord de la promotion · EF10 — ajouter une présence manuellement |
-| Étudiant | `/etudiant` | EF2/EF3 — choisir son nom, marquer sa présence, déposer son exercice · EF8 — consulter la note reçue |
+| Étudiant | `/etudiant` | EF2/EF3 — choisir son nom, marquer sa présence, déposer son exercice · EF4 — remplacer le lien déposé · EF8 — consulter la note reçue |
 | Relecteur | `/relecteur` | EF6 — retrouver l'exercice confié, rendre sa note et son commentaire · EF7 — corriger cette note avant la clôture |
 
 ## Vérifications
 
 ```bash
-# Tests backend : 146 tests sur H2, sans PostgreSQL (B6)
+# Tests backend : 161 tests sur H2, sans PostgreSQL (B6)
 cd backend && ./mvnw test
 
 # Frontend : typage et build de production
@@ -82,7 +82,7 @@ node scripts/parcours-navigateur.mjs
 `scripts/parcours-navigateur.mjs` pilote Chrome en headless par le DevTools
 Protocol et déroule le parcours complet — accueil → formateur → étudiant →
 relecteur, puis le retour au formateur pour la clôture et la présence manuelle
-(40 vérifications) — en cliquant réellement sur les formulaires. Il vérifie ce que les
+(44 vérifications) — en cliquant réellement sur les formulaires. Il vérifie ce que les
 tests MockMvc ne peuvent pas voir : hydratation React, appels API depuis
 l'origine du navigateur (CORS), affichage des erreurs du contrat, mise en page
 mobile (ENF1) et non-divulgation de l'identité de l'auteur au relecteur (RG6).
@@ -121,6 +121,13 @@ scripts/                Outillage (backlog GitHub, parcours navigateur)
   (Q1) ; l'étudiant se choisit dans une liste. La restriction « réservé au
   relecteur » (RG6) repose donc sur la comparaison d'identifiants, et non sur un
   véritable contrôle d'accès (voir `docs/CAHIER_DES_CHARGES.md`, section 11).
+- **Remplacement de lien restreint aux exercices sans relecteur** (EF4, issue #16) :
+  RG11 (Q13) parle d'« aucune relecture **commencée** » et le contrat déclare
+  `409 RELECTURE_COMMENCEE` ; comme un relecteur est tiré dès le dépôt (EF5), le
+  remplacement n'est possible que pour un exercice resté `DEPOSE`, donc déposé
+  sans autre étudiant présent. L'ébauche d'issue, qui ouvrait le remplacement
+  jusqu'à la note rendue, a été abandonnée au profit de la règle source (voir
+  `docs/CAHIER_DES_CHARGES.md`, section 11).
 - **Correction d'une note limitée à la relecture courante** (EF7, issue #17) :
   `GET /api/relecteurs/{etudiantId}/relectures-en-attente` ne renvoie, par
   définition contractuelle, que les relectures **non rendues**. Une note déjà

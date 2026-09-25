@@ -298,7 +298,7 @@ Critères d'acceptation :
 | 6 | L'étudiant relu consulte sa note sans connaître son relecteur | EF8 | Must | 1h | ✅ |
 | 7 | Le formateur consulte le tableau de bord de sa promotion | EF9 | Must | 3h | ✅ |
 | 8 | Le formateur clôture une session et fige les dépôts et les notes | EF11 | Must | 1h | ✅ |
-| 9 | L'étudiant remplace le lien de son exercice tant qu'il n'est pas relu | EF4 | Should | 1h30 | — |
+| 9 | L'étudiant remplace le lien de son exercice tant qu'il n'est pas relu | EF4 | Should | 1h30 | ✅ |
 | 10 | Le relecteur corrige sa note avant la clôture de la session | EF7 | Should | 1h30 | ✅ |
 | 11 | Le formateur ajoute manuellement une présence | EF10 | Should | 1h | ✅ |
 

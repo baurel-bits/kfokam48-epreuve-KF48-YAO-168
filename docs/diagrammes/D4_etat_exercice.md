@@ -19,7 +19,7 @@ stateDiagram-v2
 
 - **Relecteur attribué ⇒ `EN_ATTENTE_RELECTURE`** : au dépôt, un relecteur est tiré parmi les étudiants **présents à la session**, l'auteur exclu (RG5, RG13, RG4 — algorithme dans `RelectureService`). La transition de D4 est alors franchie.
 - **Aucun étudiant éligible ⇒ l'exercice reste `DEPOSE`**, sans relecteur attaché. La garde de la transition est « Attribution d'un relecteur » : sans relecteur, un exercice ne peut pas être *en attente de relecture*.
-- **Équivalence `DEPOSE` ⟺ aucune relecture** : c'est elle qui rendra RG11 (EF4) vérifiable sans requête supplémentaire — un lien n'est remplaçable que tant qu'aucune relecture n'a été confiée. Conséquence pour le tableau (EF9) : `DEPOSE` et `EN_ATTENTE_RELECTURE` sont l'un comme l'autre « non rendus » et doivent apparaître en attente (RG9).
+- **Équivalence `DEPOSE` ⟺ aucune relecture** : elle reste vraie, et c'est elle qui rend le cas « remplaçable » de RG11 (EF4) reconnaissable au seul statut — un lien n'est remplaçable que tant qu'aucune relecture n'a été confiée. L'EF4 vérifie malgré tout l'existence de la relecture plutôt que de déduire l'état du statut (voir la section issue #16). Conséquence pour le tableau (EF9) : `DEPOSE` et `EN_ATTENTE_RELECTURE` sont l'un comme l'autre « non rendus » et doivent apparaître en attente (RG9).
 
 ## Implémentation (issue #12 — EF6, `POST /api/relectures/{id}`)
 
@@ -33,6 +33,12 @@ stateDiagram-v2
 - **Aucune transition d'état** : `RELU` est un état terminal (diagramme ci-dessus) ; EF8 ne fait que le **lire**, en lecture seule, sans modifier ni l'exercice ni la relecture. C'est la contrepartie annoncée par la section EF6 : `RELU` ne publie rien, c'est cette opération qui expose la note à l'étudiant relu.
 - **RG9 — « en attente » plutôt qu'ignoré** : tant que la relecture est `EN_ATTENTE`, l'étudiant voit son exercice avec une note nulle (état intermédiaire préexistant du diagramme) ; une fois `RENDUE`, il voit la note et le commentaire.
 - **Un exercice sans relecture n'apparaît pas** : l'opération liste les relectures de l'étudiant, pas ses exercices. C'est l'équivalence `DEPOSE` ⟺ aucune relecture (section EF5) qui produit ce cas ; l'exercice n'est pas perdu pour autant, il figure comme « non rendu » dans le tableau (RG9).
+
+## Implémentation (issue #16 — EF4, `PUT /api/exercices/{id}/lien`)
+
+- **Aucune transition d'état** : remplacer un lien ne fait pas bouger l'exercice. Le seul état où RG11 l'autorise est `DEPOSE`, et l'exercice y **reste** (`DEPOSE → DEPOSE`) ; la réponse `200 {id, statut}` renvoie donc le même statut qu'au dépôt.
+- **La fenêtre de RG11 est celle du statut `DEPOSE`** : `EN_ATTENTE_RELECTURE` (relecture assignée) et `RELU` (relecture rendue) refusent le remplacement en `409 RELECTURE_COMMENCEE`. Une relecture est « commencée » dès son assignation, c'est-à-dire dès qu'une ligne `relecture` existe — le modèle ne connaissant pas d'état intermédiaire entre `EN_ATTENTE` et `RENDUE`.
+- **La clôture ferme la fenêtre** : `409 SESSION_CLOTUREE` (RG14), contrôlé avant l'état de la relecture. La transition `DEPOSE → EN_ATTENTE_RELECTURE` étant elle aussi fermée après clôture, un exercice `DEPOSE` reste `DEPOSE`, mais son lien ne peut plus être corrigé.
 
 ## Implémentation (issue #17 — EF7, `PUT /api/relectures/{id}/correction`)
 
