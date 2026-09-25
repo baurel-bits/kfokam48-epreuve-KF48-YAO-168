@@ -21,6 +21,13 @@ stateDiagram-v2
 - **Aucun étudiant éligible ⇒ l'exercice reste `DEPOSE`**, sans relecteur attaché. La garde de la transition est « Attribution d'un relecteur » : sans relecteur, un exercice ne peut pas être *en attente de relecture*.
 - **Équivalence `DEPOSE` ⟺ aucune relecture** : c'est elle qui rendra RG11 (EF4) vérifiable sans requête supplémentaire — un lien n'est remplaçable que tant qu'aucune relecture n'a été confiée. Conséquence pour le tableau (EF9) : `DEPOSE` et `EN_ATTENTE_RELECTURE` sont l'un comme l'autre « non rendus » et doivent apparaître en attente (RG9).
 
+## Implémentation (issue #12 — EF6, `POST /api/relectures/{id}`)
+
+- **Transition `EN_ATTENTE_RELECTURE → RELU`** : réalisée par la soumission de la note, dans la même transaction que l'écriture de la relecture. Une relecture `RENDUE` associée à un exercice resté « en attente » serait incohérente.
+- **`RENDUE` n'est pas un état de l'exercice** : c'est le statut de la **relecture** (D2). L'opération répond `200` et non `201`, la relecture préexistant à la note.
+- **`RELU` ne publie rien** : l'étudiant relu n'accède à sa note que par l'EF8 (`GET /api/etudiants/{etudiantId}/relectures-recues`), qui ne divulgue jamais l'identité du relecteur.
+- **Correction ultérieure** : une seconde note sur la même relecture est refusée en `409 RELECTURE_DEJA_RENDUE` ; la correction avant clôture relève de l'EF7 (`PUT /api/relectures/{id}/correction`, RG8).
+
 ## Étape 2 — Implémentation de la v0.1
 
 * **Fait :** Initialisation des projets Spring Boot (Java 17) et React, création de la migration Flyway `V1__init_schema.sql`, implémentation de la gestion centralisée des erreurs API, mise en place des endpoints `/api/presences`, `/api/exercices` et `/api/tableau`, ainsi que le développement des 3 vues frontend.

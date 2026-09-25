@@ -83,9 +83,11 @@ Substance reprise des issues d'origine (sauvegardées dans `backup/issues-avant-
 ## EF6
 
 ### Tests backend
-- Note entière entre 0 et 20 + commentaire → `200`, la relecture passe à `RELU`.
+- Note entière entre 0 et 20 + commentaire → `200`, la relecture passe à `RENDUE` **et l'exercice à `RELU`** (D4) : deux énumérations distinctes, écrites dans la même transaction.
 - Bornes acceptées : `0` et `20`. Refusées : `21`, `-1`, valeurs décimales → `400 NOTE_INVALIDE`.
-- Relecture de son propre exercice → `403 AUTO_RELECTURE` (RG4).
+- Relecture de son propre exercice → `403 AUTO_RELECTURE` (RG4). Cas **inatteignable par l'API** (l'assignation écarte l'auteur et `CHECK (relecteur_id <> auteur_id)` interdit la ligne) : garde-fou couvert par un test **unitaire** seulement.
+- Une seconde note sur la même relecture → `409 RELECTURE_DEJA_RENDUE` : la correction d'une note rendue relève de l'EF7 (`PUT /api/relectures/{id}/correction`).
+- Identifiant de relecture inconnu → `404 RELECTURE_INCONNUE` (cas non prévu par le contrat, ajouté pour ne pas renvoyer `500`).
 - Le relecteur retrouve sa mission via `GET /api/relecteurs/{etudiantId}/relectures-en-attente`.
 - La réponse destinée au relecteur ne divulgue pas l'identité de l'auteur (RG6).
 
@@ -94,7 +96,8 @@ Substance reprise des issues d'origine (sauvegardées dans `backup/issues-avant-
 - L'identité du relecteur n'est jamais renvoyée à l'étudiant relu (filtrage du DTO de sortie, RG6).
 
 ### Livrables
-- Endpoint + service + DTO ; tests d'intégration `200` / `400` / `403` ; documentation OpenAPI.
+- Endpoint + service + DTO ; tests d'intégration `200` / `400` / `409` / `404` (+ `403` en unitaire) ; documentation OpenAPI (contrat inchangé : l'opération imposée y figurait déjà).
+- Frontend : écran **relecteur** (`/relecteur`) — la 3ᵉ vue exigée par F2 — qui liste les missions assignées et rend la note.
 
 ---
 

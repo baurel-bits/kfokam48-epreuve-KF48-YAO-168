@@ -61,6 +61,16 @@ public class Exercice {
         this.statut = StatutExercice.EN_ATTENTE_RELECTURE;
     }
 
+    /**
+     * EF6/D4 : une note rendue fait passer l'exercice de
+     * {@code EN_ATTENTE_RELECTURE} à {@code RELU}. Cette transition n'est
+     * atteignable que si une relecture existe, ce que garantit l'assignation
+     * effectuée au dépôt (EF5).
+     */
+    public void marquerRelu() {
+        this.statut = StatutExercice.RELU;
+    }
+
     public Long getId() {
         return id;
     }

@@ -67,6 +67,18 @@ public class Relecture {
         this.statut = StatutRelecture.EN_ATTENTE;
     }
 
+    /**
+     * EF6 : le relecteur rend sa note et son commentaire. La note a déjà été
+     * contrôlée par le service (RG7) et l'est de nouveau par
+     * {@code ck_relecture_note} ; l'horodatage du rendu est décidé par le serveur.
+     */
+    public void rendre(int note, String commentaire) {
+        this.note = note;
+        this.commentaire = commentaire;
+        this.statut = StatutRelecture.RENDUE;
+        this.renduAt = LocalDateTime.now();
+    }
+
     public Long getId() {
         return id;
     }

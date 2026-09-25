@@ -29,4 +29,15 @@ export const ENDPOINTS = {
   PROMOTIONS: {
     ETUDIANTS: (promotionId: number) => `/api/promotions/${promotionId}/etudiants`,
   },
+
+  /** EF6 — le relecteur rend sa note et son commentaire (opération imposée). */
+  RELECTURES: {
+    RENDRE: (relectureId: number) => `/api/relectures/${relectureId}`,
+  },
+
+  /** EF6 — relectures assignées à un relecteur et non encore rendues. */
+  RELECTEURS: {
+    MISSIONS_EN_ATTENTE: (etudiantId: number) =>
+      `/api/relecteurs/${etudiantId}/relectures-en-attente`,
+  },
 } as const;

@@ -19,6 +19,12 @@ const ECRANS = [
     description:
       "EF2 / EF3 — marquer sa présence avec le code de la session, puis déposer le lien de son exercice.",
   },
+  {
+    href: "/relecteur",
+    titre: "Espace relecteur",
+    description:
+      "EF6 — retrouver l'exercice qui vous est confié, le noter et le commenter.",
+  },
 ];
 
 export default function Accueil() {
@@ -46,13 +52,13 @@ export default function Accueil() {
         ))}
       </ul>
 
-      {/* Écran attendu par F2 mais rattaché à des issues non encore traitées :
-          signalé ici sans lien, pour ne pas mener à une page inexistante. */}
+      {/* L'écran « étudiant relu » (EF8) reste à livrer : annoncé sans lien,
+          pour ne pas mener à une page inexistante. */}
       <div className="rounded-lg border border-dashed border-slate-300 p-5">
-        <h2 className="font-medium text-slate-500">Espace relecteur</h2>
+        <h2 className="font-medium text-slate-500">Mes notes reçues</h2>
         <p className="mt-1 text-sm text-slate-500">
-          EF6 / EF8 — consulter l&apos;exercice confié, le noter et le commenter.
-          Écran prévu par les issues #12 et #13, pas encore livré.
+          EF8 — consulter la note reçue sans connaître son relecteur. Prévu par
+          l&apos;issue #13, pas encore livré.
         </p>
       </div>
     </section>
