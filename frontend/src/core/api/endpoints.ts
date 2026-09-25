@@ -34,9 +34,11 @@ export const ENDPOINTS = {
     ETUDIANTS: (promotionId: number) => `/api/promotions/${promotionId}/etudiants`,
   },
 
-  /** EF6 — le relecteur rend sa note et son commentaire (opération imposée). */
+  /** EF6/EF7 — le relecteur rend sa note, puis la corrige avant la clôture. */
   RELECTURES: {
     RENDRE: (relectureId: number) => `/api/relectures/${relectureId}`,
+    /** EF7 — sous-chemin distinct : l'opération imposée ci-dessus reste intacte. */
+    CORRIGER: (relectureId: number) => `/api/relectures/${relectureId}/correction`,
   },
 
   /** EF6 — relectures assignées à un relecteur et non encore rendues. */

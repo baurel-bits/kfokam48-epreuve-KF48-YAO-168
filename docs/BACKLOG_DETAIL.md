@@ -101,6 +101,35 @@ Substance reprise des issues d'origine (sauvegardées dans `backup/issues-avant-
 
 ---
 
+## EF7
+
+### Tests backend
+- Relecture `RENDUE` → une nouvelle note et un nouveau commentaire sont enregistrés (`200`) ; la note **courante** est la nouvelle, la précédente est **archivée** (`correction_relecture`).
+- Deux corrections successives → deux lignes d'historique, dans l'ordre.
+- Relecture **jamais rendue** → `409 RELECTURE_NON_RENDUE` : la correction ne peut pas tenir lieu de premier rendu (`ancienne_note` est `NOT NULL`, il n'y a rien à archiver).
+- Session clôturée → `409 SESSION_CLOTUREE` (RG8), contrôlée **avant** l'état de la relecture.
+- Note invalide → `400 NOTE_INVALIDE` ; relecture inconnue → `404 RELECTURE_INCONNUE` ; auto-relecture → `403 AUTO_RELECTURE` (garde-fou unitaire, inatteignable par l'API).
+- `rendu_at` **n'est pas réécrit** et l'exercice **reste `RELU`** (D4) : une correction ne rejoue pas le rendu.
+
+### Tests frontend
+- Après le rendu, l'action « Corriger ma note » apparaît, préremplie avec la note et le commentaire **du serveur**.
+- Correction enregistrée → la note affichée devient la nouvelle ; l'erreur du serveur est affichée telle quelle (`{ code, message }`).
+
+### Contraintes techniques
+- Endpoint du contrat : **`PUT /api/relectures/{id}/correction`** — `PUT` et **sous-chemin distinct** pour que l'opération imposée `POST /api/relectures/{id}` reste strictement identique.
+- Aucune migration : `correction_relecture` existe depuis `V1` (RG8). L'ancienne note est archivée **avant** d'être remplacée, dans la même transaction.
+
+### ⚠️ Limite assumée
+Le contrat ne prévoit **aucun statut** pour corriger une relecture jamais rendue (il ne déclare que `409 SESSION_CLOTUREE` sur cette opération) : un code a été ajouté, `409 RELECTURE_NON_RENDUE`, symétrique de `RELECTURE_DEJA_RENDUE` de l'EF6 (section 11 du cahier des charges).
+
+Côté interface, la correction n'est proposée que pour la relecture **qui vient d'être rendue** : la seule opération de liste (`GET /api/relecteurs/{etudiantId}/relectures-en-attente`) est définie par le contrat comme renvoyant les relectures **non rendues**. Après un rechargement de page, aucune note déjà rendue n'est donc atteignable depuis l'écran, faute d'endpoint de lecture — même famille de limite que « aucune relecture d'une session ».
+
+### Livrables
+- Endpoint + service + historique (`correction_relecture`, entité + repository) ; tests unitaires et d'intégration (`200`, `409` avant/après clôture, `400`, `404`).
+- Frontend : section « Corriger ma note » de l'écran relecteur (F2, 3ᵉ vue), et couche d'appel `PUT` dans `core/api` (aucun `fetch` dans un composant).
+
+---
+
 ## EF8
 
 ### Tests backend
@@ -216,7 +245,8 @@ Ces points des anciennes issues sont **abandonnés tant qu'ils ne sont pas tranc
 ### Points de gel (RG14)
 - **Dépôt d'exercice** → `409 SESSION_CLOTUREE`. En place depuis l'EF3 : le contrôle de clôture précède celui du doublon, si bien qu'un étudiant ayant déjà déposé reçoit bien `SESSION_CLOTUREE`.
 - **Notation** → `409 SESSION_CLOTUREE` sur `POST /api/relectures/{id}`. Le contrôle est placé **avant** `RELECTURE_DEJA_RENDUE` : une session clôturée interdit aussi la correction de l'EF7 (RG8), donc renvoyer l'appelant vers l'EF7 serait trompeur.
-- **Remplacement de lien** (EF4) et **correction de note** (EF7) : le même gel les attend (RG11, RG8). Ces deux issues étant hors de la v0.1, le contrôle arrivera avec elles.
+- **Remplacement de lien** (EF4) : le même gel l'attend (RG11) ; cette issue étant hors de la v0.1, le contrôle arrivera avec elle.
+- **Correction de note** (EF7) → `409 SESSION_CLOTUREE` sur `PUT /api/relectures/{id}/correction`, livré avec l'issue #17 : le gel de RG8 est donc **complet** côté notes (création et correction).
 
 ### Ce que la clôture ne fait pas
 - Elle ne touche ni aux présences, ni aux exercices, ni aux relectures déjà enregistrés : le contrat dit « gèle tout **dépôt** et toute **notation** », et l'issue de référence ne mentionne que ces deux points. Marquer sa présence avec un code encore valide reste donc possible.

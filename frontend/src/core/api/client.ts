@@ -89,4 +89,6 @@ export const api = {
     appelApi<T>(chemin, { ...options, method: "GET" }),
   post: <T>(chemin: string, body?: unknown, options?: Omit<RequeteOptions, "body">) =>
     appelApi<T>(chemin, { ...options, method: "POST", body }),
+  put: <T>(chemin: string, body?: unknown, options?: Omit<RequeteOptions, "body">) =>
+    appelApi<T>(chemin, { ...options, method: "PUT", body }),
 };

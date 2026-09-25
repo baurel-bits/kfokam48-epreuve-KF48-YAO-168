@@ -34,6 +34,13 @@ stateDiagram-v2
 - **RG9 — « en attente » plutôt qu'ignoré** : tant que la relecture est `EN_ATTENTE`, l'étudiant voit son exercice avec une note nulle (état intermédiaire préexistant du diagramme) ; une fois `RENDUE`, il voit la note et le commentaire.
 - **Un exercice sans relecture n'apparaît pas** : l'opération liste les relectures de l'étudiant, pas ses exercices. C'est l'équivalence `DEPOSE` ⟺ aucune relecture (section EF5) qui produit ce cas ; l'exercice n'est pas perdu pour autant, il figure comme « non rendu » dans le tableau (RG9).
 
+## Implémentation (issue #17 — EF7, `PUT /api/relectures/{id}/correction`)
+
+- **Aucune transition d'état** : la correction remplace le contenu de la note, pas le statut. `RELU` reste terminal, et `relecture.statut` reste `RENDUE` — une correction n'est pas un second rendu, `rendu_at` n'est pas réécrit.
+- **Ce qui change est ailleurs que dans cet automate** : la note précédente part dans `correction_relecture` (RG8), pendant que la note courante reste sur `relecture`. C'est ce qui permet de corriger sans perdre la trace de l'évaluation initiale.
+- **`RENDUE → RELU` n'est pas rejoué** : l'exercice était déjà `RELU` et le reste. Seul l'EF6 franchit cette transition.
+- **La clôture ferme la correction** : `EN_ATTENTE_RELECTURE → RELU` est déjà infranchissable après clôture (section EF11), et l'EF7 y ajoute le gel du contenu — une note `RELU` corrigée après la clôture rendrait le gel de l'EF11 purement décoratif.
+
 ## Implémentation (issue #15 — EF11, `POST /api/sessions/{id}/cloture`)
 
 - **`EN_ATTENTE_RELECTURE → RELU` devient infranchissable** : la clôture fait refuser `rendre` en `409 SESSION_CLOTUREE`, donc la transition de l'EF6 n'est plus atteignable. `RELU` reste un état terminal.
