@@ -3,12 +3,14 @@ package com.kfokam48.app.features.relecture.presentation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Timestamp;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,6 +41,10 @@ class RelectureControllerTest {
     private static final long PROMOTION_DEMO = 1L;
     private static final String LIEN = "https://exemple.org/exercice-ef6.pdf";
     private static final String COMMENTAIRE = "Bien argumenté, conclusion à préciser.";
+
+    /** Note et commentaire de la correction (EF7) : ils remplacent les précédents. */
+    private static final int NOTE_CORRIGEE = 18;
+    private static final String COMMENTAIRE_CORRIGE = "Correction : la conclusion a été réécrite.";
 
     /** Le relecteur est l'étudiant 2 : l'auteur (1) est présent mais écarté (RG4). */
     private static final long RELECTEUR_ID = 2L;
@@ -237,6 +243,140 @@ class RelectureControllerTest {
                 .andExpect(jsonPath("$.length()").value(0));
     }
 
+    // ---------- EF7 : le relecteur corrige sa note avant la clôture (RG8) ----------
+
+    @Test
+    @DisplayName("EF7 : la note corrigée remplace l'ancienne et répond 200")
+    void corrige_une_note_rendue() throws Exception {
+        Contexte contexte = preparerScenario();
+        rendre(contexte.relectureId(), 15);
+        Timestamp renduInitial = renduAt(contexte.relectureId());
+
+        mockMvc.perform(put("/api/relectures/{id}/correction", contexte.relectureId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("note", NOTE_CORRIGEE, "commentaire", COMMENTAIRE_CORRIGE))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.relectureId").value((int) contexte.relectureId()))
+                .andExpect(jsonPath("$.note").value(NOTE_CORRIGEE))
+                .andExpect(jsonPath("$.commentaire").value(COMMENTAIRE_CORRIGE))
+                .andExpect(jsonPath("$.statut").value("RENDUE"))
+                // RG6 : la réponse ne porte jamais l'identité du relecteur.
+                .andExpect(jsonPath("$.relecteurId").doesNotExist());
+
+        // RG8 : la note courante est la nouvelle, l'ancienne est archivée à part.
+        assertThat(noteEnregistree(contexte.relectureId())).isEqualTo(NOTE_CORRIGEE);
+        assertThat(statutDeLaRelecture(contexte.relectureId())).isEqualTo("RENDUE");
+        assertThat(renduAt(contexte.relectureId())).isEqualTo(renduInitial);
+        assertThat(historiqueDesNotes(contexte.relectureId())).containsExactly(15);
+        assertThat(historiqueDesCommentaires(contexte.relectureId())).containsExactly(COMMENTAIRE);
+
+        // D4 : l'exercice reste RELU — corriger une note ne défait pas la relecture.
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT statut FROM exercice WHERE id = ?", String.class, contexte.exerciceId()))
+                .isEqualTo("RELU");
+    }
+
+    @Test
+    @DisplayName("RG8 (EF7) : deux corrections successives conservent les deux notes précédentes")
+    void deux_corrections_s_empilent() throws Exception {
+        Contexte contexte = preparerScenario();
+        rendre(contexte.relectureId(), 15);
+
+        corriger(contexte.relectureId(), NOTE_CORRIGEE);
+        corriger(contexte.relectureId(), 9);
+
+        // La dernière note corrige la précédente : l'historique les garde toutes.
+        assertThat(noteEnregistree(contexte.relectureId())).isEqualTo(9);
+        assertThat(historiqueDesNotes(contexte.relectureId())).containsExactly(15, NOTE_CORRIGEE);
+    }
+
+    @Test
+    @DisplayName("EF7/EF8 : l'étudiant relu voit la note corrigée, sans l'identité du relecteur (RG6)")
+    void l_etudiant_voit_la_note_corrigee() throws Exception {
+        Contexte contexte = preparerScenario();
+        rendre(contexte.relectureId(), 15);
+
+        corriger(contexte.relectureId(), NOTE_CORRIGEE);
+
+        JsonNode note = noteRecueDe(AUTEUR_ID, contexte.exerciceId());
+        assertThat(note).isNotNull();
+        assertThat(note.get("note").asInt()).isEqualTo(NOTE_CORRIGEE);
+        assertThat(note.get("commentaire").asText()).isEqualTo(COMMENTAIRE_CORRIGE);
+        assertThat(notesRecuesDe(AUTEUR_ID).findValues("relecteurId")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("RG8 (EF7) : après clôture, la correction est refusée en 409 SESSION_CLOTUREE")
+    void correction_refusee_apres_cloture() throws Exception {
+        Contexte contexte = preparerScenario();
+        rendre(contexte.relectureId(), 15);
+
+        mockMvc.perform(post("/api/sessions/{id}/cloture", contexte.sessionId()))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/relectures/{id}/correction", contexte.relectureId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("note", NOTE_CORRIGEE, "commentaire", COMMENTAIRE_CORRIGE))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SESSION_CLOTUREE"))
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andExpect(jsonPath("$.trace").doesNotExist());
+
+        // Rien n'a bougé : ni la note, ni l'historique des corrections.
+        assertThat(noteEnregistree(contexte.relectureId())).isEqualTo(15);
+        assertThat(historiqueDesNotes(contexte.relectureId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("EF7 : corriger une relecture jamais rendue est refusé en 409 RELECTURE_NON_RENDUE")
+    void correction_sans_rendu_prealable_refusee() throws Exception {
+        Contexte contexte = preparerScenario();
+
+        mockMvc.perform(put("/api/relectures/{id}/correction", contexte.relectureId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("note", NOTE_CORRIGEE, "commentaire", COMMENTAIRE_CORRIGE))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RELECTURE_NON_RENDUE"));
+
+        // La relecture reste à rendre : c'est POST /api/relectures/{id} qui s'applique.
+        assertThat(statutDeLaRelecture(contexte.relectureId())).isEqualTo("EN_ATTENTE");
+        assertThat(historiqueDesNotes(contexte.relectureId())).isEmpty();
+    }
+
+    @ParameterizedTest(name = "note refusée : {0}")
+    @ValueSource(strings = {"-1", "21", "15.5"})
+    @DisplayName("RG7 (EF7) : une note invalide est refusée en 400 NOTE_INVALIDE")
+    void correction_refuse_une_note_invalide(String note) throws Exception {
+        Contexte contexte = preparerScenario();
+        rendre(contexte.relectureId(), 15);
+        String corps = "{\"note\": " + note + ", \"commentaire\": "
+                + objectMapper.writeValueAsString(COMMENTAIRE_CORRIGE) + "}";
+
+        mockMvc.perform(put("/api/relectures/{id}/correction", contexte.relectureId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(corps))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("NOTE_INVALIDE"))
+                .andExpect(jsonPath("$.trace").doesNotExist());
+
+        assertThat(noteEnregistree(contexte.relectureId())).isEqualTo(15);
+        assertThat(historiqueDesNotes(contexte.relectureId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("EF7 : corriger une relecture inconnue est refusé en 404 RELECTURE_INCONNUE")
+    void correction_d_une_relecture_inconnue() throws Exception {
+        mockMvc.perform(put("/api/relectures/{id}/correction", 999_999L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("note", NOTE_CORRIGEE, "commentaire", COMMENTAIRE_CORRIGE))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RELECTURE_INCONNUE"));
+    }
+
     // ---------- EF11 : la clôture gèle la notation (RG14) ----------
 
     @Test
@@ -292,6 +432,33 @@ class RelectureControllerTest {
         Long relectureId = jdbcTemplate.queryForObject(
                 "SELECT id FROM relecture WHERE exercice_id = ?", Long.class, exerciceId);
         return new Contexte(sessionId, exerciceId, relectureId == null ? -1L : relectureId);
+    }
+
+    /** Corrige une relecture rendue (EF7) : la note courante devient {@code note}. */
+    private void corriger(long relectureId, int note) throws Exception {
+        mockMvc.perform(put("/api/relectures/{id}/correction", relectureId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("note", note, "commentaire", COMMENTAIRE_CORRIGE))))
+                .andExpect(status().isOk());
+    }
+
+    /** Notes archivées par les corrections (RG8), de la plus ancienne à la plus récente. */
+    private List<Integer> historiqueDesNotes(long relectureId) {
+        return jdbcTemplate.queryForList(
+                "SELECT ancienne_note FROM correction_relecture WHERE relecture_id = ? ORDER BY id",
+                Integer.class, relectureId);
+    }
+
+    private List<String> historiqueDesCommentaires(long relectureId) {
+        return jdbcTemplate.queryForList(
+                "SELECT ancien_commentaire FROM correction_relecture WHERE relecture_id = ? ORDER BY id",
+                String.class, relectureId);
+    }
+
+    private Timestamp renduAt(long relectureId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT rendu_at FROM relecture WHERE id = ?", Timestamp.class, relectureId);
     }
 
     private void rendre(long relectureId, int note) throws Exception {

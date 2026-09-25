@@ -19,8 +19,10 @@ import com.kfokam48.app.features.relecture.application.dto.MissionRelecteurRepon
 import com.kfokam48.app.features.relecture.application.dto.NoteRecueReponse;
 import com.kfokam48.app.features.relecture.application.dto.RelectureRendueReponse;
 import com.kfokam48.app.features.relecture.application.dto.SoumissionRelectureRequete;
+import com.kfokam48.app.features.relecture.domain.entity.CorrectionRelecture;
 import com.kfokam48.app.features.relecture.domain.entity.Relecture;
 import com.kfokam48.app.features.relecture.domain.entity.StatutRelecture;
+import com.kfokam48.app.features.relecture.domain.repository.CorrectionRelectureRepository;
 import com.kfokam48.app.features.relecture.domain.repository.RelectureRepository;
 import com.kfokam48.app.features.session.domain.entity.Session;
 import com.kfokam48.app.features.session.domain.repository.SessionRepository;
@@ -54,9 +56,13 @@ class RelectureServiceTest {
     private static final Long AUTRE_PRESENT = 4L;
     private static final String LIEN = "https://exemple.org/exercice.pdf";
     private static final String COMMENTAIRE = "Travail clair et bien structuré.";
+    private static final int NOTE_RENDUE = 15;
 
     @Mock
     private RelectureRepository relectureRepository;
+
+    @Mock
+    private CorrectionRelectureRepository correctionRelectureRepository;
 
     @Mock
     private PresenceRepository presenceRepository;
@@ -71,8 +77,8 @@ class RelectureServiceTest {
 
     @BeforeEach
     void initialiserLeService() {
-        relectureService = new RelectureService(relectureRepository, presenceRepository, exerciceRepository,
-                sessionRepository);
+        relectureService = new RelectureService(relectureRepository, correctionRelectureRepository,
+                presenceRepository, exerciceRepository, sessionRepository);
     }
 
     @Test
@@ -284,6 +290,151 @@ class RelectureServiceTest {
         verify(relectureRepository, never()).save(any(Relecture.class));
     }
 
+    // ---------- EF7 : le relecteur corrige sa note avant la clôture (RG8) ----------
+
+    @Test
+    @DisplayName("RG8 (EF7) : la note corrigée remplace l'ancienne, qui est archivée")
+    void corrige_une_note_rendue() {
+        Relecture rendue = relectureRendue();
+        LocalDateTime renduInitial = rendue.getRenduAt();
+        when(relectureRepository.findById(EXERCICE_ID + 100)).thenReturn(Optional.of(rendue));
+        when(exerciceRepository.findById(EXERCICE_ID)).thenReturn(Optional.of(exercice()));
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(false)));
+
+        RelectureRendueReponse reponse = relectureService.corriger(EXERCICE_ID + 100,
+                new SoumissionRelectureRequete(new BigDecimal("7"), "Relecture revue à la baisse."));
+
+        assertThat(reponse.note()).isEqualTo(7);
+        assertThat(reponse.commentaire()).isEqualTo("Relecture revue à la baisse.");
+        assertThat(reponse.statut()).isEqualTo(StatutRelecture.RENDUE);
+
+        // RG8 : la note courante est la nouvelle, l'ancienne est conservée à part.
+        CorrectionRelecture archive = correctionArchivee();
+        assertThat(archive.getRelectureId()).isEqualTo(EXERCICE_ID + 100);
+        assertThat(archive.getAncienneNote()).isEqualTo(NOTE_RENDUE);
+        assertThat(archive.getAncienCommentaire()).isEqualTo(COMMENTAIRE);
+        assertThat(archive.getCorrigeAt()).isNotNull();
+
+        Relecture enregistree = relectureEnregistree();
+        assertThat(enregistree.getNote()).isEqualTo(7);
+        assertThat(enregistree.getStatut()).isEqualTo(StatutRelecture.RENDUE);
+        // Une correction ne rejoue pas le rendu : l'horodatage du rendu ne bouge pas.
+        assertThat(enregistree.getRenduAt()).isEqualTo(renduInitial);
+    }
+
+    @Test
+    @DisplayName("RG8 (EF7) : une relecture jamais rendue est refusée en 409 RELECTURE_NON_RENDUE")
+    void corriger_sans_rendu_prealable_refuse() {
+        when(relectureRepository.findById(EXERCICE_ID + 100)).thenReturn(Optional.of(relectureAssignee()));
+        when(exerciceRepository.findById(EXERCICE_ID)).thenReturn(Optional.of(exercice()));
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(false)));
+
+        assertThatThrownBy(() -> relectureService.corriger(EXERCICE_ID + 100,
+                new SoumissionRelectureRequete(new BigDecimal("12"), COMMENTAIRE)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> {
+                    ExceptionMetier erreur = (ExceptionMetier) thrown;
+                    assertThat(erreur.getCode()).isEqualTo(CodeErreur.RELECTURE_NON_RENDUE);
+                    assertThat(erreur.getStatut()).isEqualTo(HttpStatus.CONFLICT);
+                });
+
+        // Rien n'est archivé : il n'y avait aucune note à remplacer.
+        verify(correctionRelectureRepository, never()).save(any(CorrectionRelecture.class));
+        verify(relectureRepository, never()).save(any(Relecture.class));
+    }
+
+    @Test
+    @DisplayName("RG8 (EF7) : une session clôturée refuse la correction en 409 SESSION_CLOTUREE")
+    void corriger_apres_cloture_refuse() {
+        when(relectureRepository.findById(EXERCICE_ID + 100)).thenReturn(Optional.of(relectureRendue()));
+        when(exerciceRepository.findById(EXERCICE_ID)).thenReturn(Optional.of(exercice()));
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(true)));
+
+        assertThatThrownBy(() -> relectureService.corriger(EXERCICE_ID + 100,
+                new SoumissionRelectureRequete(new BigDecimal("7"), COMMENTAIRE)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> assertThat(((ExceptionMetier) thrown).getCode())
+                        .isEqualTo(CodeErreur.SESSION_CLOTUREE));
+
+        verify(correctionRelectureRepository, never()).save(any(CorrectionRelecture.class));
+    }
+
+    @Test
+    @DisplayName("RG8 (EF7) : la clôture prime sur « non rendue » — la correction est gelée, pas seulement déplacée")
+    void la_cloture_prime_sur_non_rendue() {
+        when(relectureRepository.findById(EXERCICE_ID + 100)).thenReturn(Optional.of(relectureAssignee()));
+        when(exerciceRepository.findById(EXERCICE_ID)).thenReturn(Optional.of(exercice()));
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(true)));
+
+        assertThatThrownBy(() -> relectureService.corriger(EXERCICE_ID + 100,
+                new SoumissionRelectureRequete(new BigDecimal("7"), COMMENTAIRE)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> assertThat(((ExceptionMetier) thrown).getCode())
+                        .isEqualTo(CodeErreur.SESSION_CLOTUREE));
+    }
+
+    @ParameterizedTest(name = "note refusée : {0}")
+    @ValueSource(strings = {"-1", "21", "15.5"})
+    @DisplayName("RG7 (EF7) : une note invalide est refusée en 400 NOTE_INVALIDE, sans rien corriger")
+    void correction_refuse_une_note_invalide(String note) {
+        assertThatThrownBy(() -> relectureService.corriger(EXERCICE_ID + 100,
+                new SoumissionRelectureRequete(new BigDecimal(note), COMMENTAIRE)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> assertThat(((ExceptionMetier) thrown).getCode())
+                        .isEqualTo(CodeErreur.NOTE_INVALIDE));
+
+        // La forme de la note est contrôlée avant toute lecture (même ordre que l'EF6).
+        verify(relectureRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("EF7 : corriger une relecture inconnue renvoie 404 RELECTURE_INCONNUE")
+    void correction_d_une_relecture_inconnue() {
+        when(relectureRepository.findById(999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> relectureService.corriger(999L,
+                new SoumissionRelectureRequete(new BigDecimal("12"), COMMENTAIRE)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> {
+                    ExceptionMetier erreur = (ExceptionMetier) thrown;
+                    assertThat(erreur.getCode()).isEqualTo(CodeErreur.RELECTURE_INCONNUE);
+                    assertThat(erreur.getStatut()).isEqualTo(HttpStatus.NOT_FOUND);
+                });
+    }
+
+    @Test
+    @DisplayName("RG4 (EF7) : une auto-relecture est refusée en 403 AUTO_RELECTURE")
+    void correction_d_une_auto_relecture_refusee() {
+        Relecture auto = autoRelecture();
+        auto.rendre(NOTE_RENDUE, COMMENTAIRE);
+        when(relectureRepository.findById(EXERCICE_ID + 100)).thenReturn(Optional.of(auto));
+
+        assertThatThrownBy(() -> relectureService.corriger(EXERCICE_ID + 100,
+                new SoumissionRelectureRequete(new BigDecimal("7"), COMMENTAIRE)))
+                .isInstanceOf(ExceptionMetier.class)
+                .satisfies(thrown -> assertThat(((ExceptionMetier) thrown).getCode())
+                        .isEqualTo(CodeErreur.AUTO_RELECTURE));
+
+        verify(correctionRelectureRepository, never()).save(any(CorrectionRelecture.class));
+    }
+
+    @Test
+    @DisplayName("D4 (EF7) : la correction ne change pas le statut de l'exercice, qui reste RELU")
+    void correction_conserve_l_exercice_relu() {
+        Exercice exercice = exercice();
+        exercice.attribuerRelecteur();
+        exercice.marquerRelu();
+        when(relectureRepository.findById(EXERCICE_ID + 100)).thenReturn(Optional.of(relectureRendue()));
+        when(exerciceRepository.findById(EXERCICE_ID)).thenReturn(Optional.of(exercice));
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session(false)));
+
+        relectureService.corriger(EXERCICE_ID + 100,
+                new SoumissionRelectureRequete(new BigDecimal("7"), COMMENTAIRE));
+
+        assertThat(exercice.getStatut()).isEqualTo(StatutExercice.RELU);
+        assertThat(exercice.getLien()).isEqualTo(LIEN);
+    }
+
     // ---------- EF11 : la clôture gèle la notation (RG14) ----------
 
     @Test
@@ -431,6 +582,20 @@ class RelectureServiceTest {
         Relecture relecture = new Relecture(EXERCICE_ID, RELECTEUR_ID, AUTEUR_ID);
         ReflectionTestUtils.setField(relecture, "id", EXERCICE_ID + 100);
         return relecture;
+    }
+
+    /** Relecture déjà rendue : l'état d'entrée de l'EF7. */
+    private Relecture relectureRendue() {
+        Relecture relecture = relectureAssignee();
+        relecture.rendre(NOTE_RENDUE, COMMENTAIRE);
+        return relecture;
+    }
+
+    /** L'archive écrite par une correction (RG8), lue sur le dépôt simulé. */
+    private CorrectionRelecture correctionArchivee() {
+        ArgumentCaptor<CorrectionRelecture> capture = ArgumentCaptor.forClass(CorrectionRelecture.class);
+        verify(correctionRelectureRepository).save(capture.capture());
+        return capture.getValue();
     }
 
     /** Situation interdite par RG4, impossible à produire par l'API : garde-fou. */

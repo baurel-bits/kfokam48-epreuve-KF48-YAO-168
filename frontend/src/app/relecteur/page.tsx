@@ -8,11 +8,12 @@ import type {
   RelectureRendueReponse,
 } from "@/core/api/types";
 import { listerEtudiants } from "@/features/promotion/api/listerEtudiants";
+import { corrigerRelecture } from "@/features/relecture/api/corrigerRelecture";
 import { listerMissionsEnAttente } from "@/features/relecture/api/listerMissionsEnAttente";
 import { rendreRelecture } from "@/features/relecture/api/rendreRelecture";
 
 /** Étape de l'écran à laquelle rattacher une erreur. */
-type Etape = "etudiants" | "missions" | "note";
+type Etape = "etudiants" | "missions" | "note" | "correction";
 
 /** Forme affichable d'une erreur : le `code` imposé par le contrat + son message. */
 interface ErreurAffichee {
@@ -42,11 +43,13 @@ function BlocErreur({ erreur }: { erreur: ErreurAffichee }) {
 
 /**
  * Écran relecteur — EF6 : choisir son nom, retrouver l'exercice qui lui est
- * confié, rendre sa note et son commentaire.
+ * confié, rendre sa note et son commentaire ; EF7 : corriger cette note tant que
+ * la session n'est pas clôturée.
  *
  * Vue mobile en priorité (ENF1), et aucune règle métier recalculée ici (F3) : la
- * validité de la note (RG7), le passage de la relecture à `RENDUE` et celui de
- * l'exercice à `RELU` sont décidés par le serveur.
+ * validité de la note (RG7), le passage de la relecture à `RENDUE`, celui de
+ * l'exercice à `RELU` et le gel de la correction (RG8) sont décidés par le
+ * serveur.
  */
 export default function EcranRelecteur() {
   const [promotionId, setPromotionId] = useState("1");
@@ -59,6 +62,15 @@ export default function EcranRelecteur() {
   const [rendue, setRendue] = useState<RelectureRendueReponse | null>(null);
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState<ErreurAffichee | null>(null);
+
+  // EF7 — correction de la relecture qui vient d'être rendue. Le serveur seul
+  // décide si c'est encore permis (RG8) : cet état ne fait qu'afficher le
+  // formulaire et son résultat.
+  const [correctionOuverte, setCorrectionOuverte] = useState(false);
+  const [noteCorrigee, setNoteCorrigee] = useState("");
+  const [commentaireCorrige, setCommentaireCorrige] = useState("");
+  const [corrigee, setCorrigee] = useState<RelectureRendueReponse | null>(null);
+  const [chargementCorrection, setChargementCorrection] = useState(false);
 
   async function chargerLesEtudiants(evenement: React.FormEvent<HTMLFormElement>) {
     evenement.preventDefault();
@@ -120,11 +132,63 @@ export default function EcranRelecteur() {
       setNote("");
       setCommentaire("");
       setMissionId(null);
+      // Une nouvelle relecture rendue : une éventuelle correction précédente ne
+      // concerne plus ce formulaire.
+      fermerLaCorrection();
       await rafraichirLesMissions(etudiantId);
     } catch (echec) {
       setErreur(versErreur(echec, "note", "La note n'a pas pu être enregistrée."));
     } finally {
       setChargement(false);
+    }
+  }
+
+  /**
+   * Ouvre la correction en repartant de la note rendue : le relecteur corrige ce
+   * qu'il a écrit, il ne le ressaisit pas. Les valeurs viennent de la réponse du
+   * serveur, jamais d'un calcul local.
+   */
+  function ouvrirLaCorrection() {
+    if (rendue === null) {
+      return;
+    }
+    setNoteCorrigee(String(rendue.note));
+    setCommentaireCorrige(rendue.commentaire);
+    setCorrigee(null);
+    setErreur(null);
+    setCorrectionOuverte(true);
+  }
+
+  function fermerLaCorrection() {
+    setCorrectionOuverte(false);
+    setNoteCorrigee("");
+    setCommentaireCorrige("");
+    setCorrigee(null);
+  }
+
+  async function soumettreLaCorrection(evenement: React.FormEvent<HTMLFormElement>) {
+    evenement.preventDefault();
+    if (rendue === null || chargementCorrection) {
+      return;
+    }
+
+    setChargementCorrection(true);
+    setErreur(null);
+    setCorrigee(null);
+
+    try {
+      const reponse = await corrigerRelecture(rendue.relectureId, {
+        note: Number(noteCorrigee),
+        commentaire: commentaireCorrige,
+      });
+      // La note affichée à l'étape 3 devient celle que le serveur vient
+      // d'enregistrer : l'écran ne garde pas de version périmée.
+      setRendue(reponse);
+      setCorrigee(reponse);
+    } catch (echec) {
+      setErreur(versErreur(echec, "correction", "La correction n'a pas pu être enregistrée."));
+    } finally {
+      setChargementCorrection(false);
     }
   }
 
@@ -327,6 +391,104 @@ export default function EcranRelecteur() {
 
         {erreur?.etape === "note" && <BlocErreur erreur={erreur} />}
       </form>
+
+      <section className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4">
+        <h2 className="text-sm font-medium">4. Corriger ma note</h2>
+
+        {rendue === null ? (
+          <p className="text-sm text-slate-500">
+            Rendez d&apos;abord une relecture à l&apos;étape 3 : on ne corrige
+            qu&apos;une note déjà enregistrée. Après un rechargement de la page,
+            cette section reste vide — la seule opération de liste ne renvoie que
+            les relectures encore à rendre.
+          </p>
+        ) : (
+          <p className="text-sm text-slate-600">
+            Dernière note rendue : exercice n°{rendue.exerciceId} — {rendue.note}/20.
+          </p>
+        )}
+
+        {rendue !== null && !correctionOuverte && (
+          <button
+            type="button"
+            onClick={ouvrirLaCorrection}
+            className="w-full rounded border border-slate-300 px-4 py-3 text-sm font-medium"
+          >
+            Corriger ma note
+          </button>
+        )}
+
+        {rendue !== null && correctionOuverte && (
+          <form onSubmit={soumettreLaCorrection} className="flex flex-col gap-3">
+            <p className="text-xs text-slate-500">
+              La note remplacée reste conservée dans l&apos;historique des
+              corrections ; c&apos;est le serveur qui décide si la session permet
+              encore de corriger (RG8).
+            </p>
+
+            <div>
+              <label htmlFor="noteCorrigee" className="block text-sm text-slate-600">
+                Nouvelle note sur 20 (entier)
+              </label>
+              <input
+                id="noteCorrigee"
+                type="number"
+                step="1"
+                required
+                autoComplete="off"
+                value={noteCorrigee}
+                onChange={(evenement) => setNoteCorrigee(evenement.target.value)}
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-3 text-center text-xl"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="commentaireCorrige" className="block text-sm text-slate-600">
+                Nouveau commentaire
+              </label>
+              <textarea
+                id="commentaireCorrige"
+                required
+                rows={4}
+                value={commentaireCorrige}
+                onChange={(evenement) => setCommentaireCorrige(evenement.target.value)}
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={chargementCorrection}
+                className="flex-1 rounded bg-slate-900 px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {chargementCorrection ? "Enregistrement…" : "Enregistrer la correction"}
+              </button>
+              <button
+                type="button"
+                disabled={chargementCorrection}
+                onClick={fermerLaCorrection}
+                className="rounded border border-slate-300 px-4 py-3 text-sm font-medium disabled:opacity-50"
+              >
+                Annuler
+              </button>
+            </div>
+
+            {corrigee && (
+              <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                <p className="font-medium">Correction enregistrée</p>
+                <p className="mt-1">
+                  Exercice n°{corrigee.exerciceId} — note {corrigee.note}/20 —
+                  statut {corrigee.statut}
+                </p>
+                <p className="mt-1">{corrigee.commentaire}</p>
+              </div>
+            )}
+
+            {erreur?.etape === "correction" && <BlocErreur erreur={erreur} />}
+          </form>
+        )}
+      </section>
     </section>
   );
 }

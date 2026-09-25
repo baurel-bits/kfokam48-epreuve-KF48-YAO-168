@@ -64,12 +64,12 @@ par F2 :
 |---|---|---|
 | Formateur | `/formateur` | EF1 — ouvrir une session et obtenir le code · EF11 — clôturer (gel des dépôts et des notes) · EF9 — tableau de bord de la promotion · EF10 — ajouter une présence manuellement |
 | Étudiant | `/etudiant` | EF2/EF3 — choisir son nom, marquer sa présence, déposer son exercice · EF8 — consulter la note reçue |
-| Relecteur | `/relecteur` | EF6 — retrouver l'exercice confié, rendre sa note et son commentaire |
+| Relecteur | `/relecteur` | EF6 — retrouver l'exercice confié, rendre sa note et son commentaire · EF7 — corriger cette note avant la clôture |
 
 ## Vérifications
 
 ```bash
-# Tests backend : 127 tests sur H2, sans PostgreSQL (B6)
+# Tests backend : 146 tests sur H2, sans PostgreSQL (B6)
 cd backend && ./mvnw test
 
 # Frontend : typage et build de production
@@ -82,7 +82,7 @@ node scripts/parcours-navigateur.mjs
 `scripts/parcours-navigateur.mjs` pilote Chrome en headless par le DevTools
 Protocol et déroule le parcours complet — accueil → formateur → étudiant →
 relecteur, puis le retour au formateur pour la clôture et la présence manuelle
-(37 vérifications) — en cliquant réellement sur les formulaires. Il vérifie ce que les
+(40 vérifications) — en cliquant réellement sur les formulaires. Il vérifie ce que les
 tests MockMvc ne peuvent pas voir : hydratation React, appels API depuis
 l'origine du navigateur (CORS), affichage des erreurs du contrat, mise en page
 mobile (ENF1) et non-divulgation de l'identité de l'auteur au relecteur (RG6).
@@ -121,6 +121,12 @@ scripts/                Outillage (backlog GitHub, parcours navigateur)
   (Q1) ; l'étudiant se choisit dans une liste. La restriction « réservé au
   relecteur » (RG6) repose donc sur la comparaison d'identifiants, et non sur un
   véritable contrôle d'accès (voir `docs/CAHIER_DES_CHARGES.md`, section 11).
+- **Correction d'une note limitée à la relecture courante** (EF7, issue #17) :
+  `GET /api/relecteurs/{etudiantId}/relectures-en-attente` ne renvoie, par
+  définition contractuelle, que les relectures **non rendues**. Une note déjà
+  rendue n'est donc corrigeable que dans la foulée de son rendu, tant que
+  l'écran la garde ; après un rechargement, aucune opération ne permet de la
+  retrouver (voir `docs/CAHIER_DES_CHARGES.md`, section 11).
 - **Aucune relecture d'une session** : le contrat n'offre pas d'opération qui
   renverrait une session (ni sa liste), et ses opérations additionnelles sont
   réservées aux EF du cahier des charges. Le formateur ne peut donc revoir que

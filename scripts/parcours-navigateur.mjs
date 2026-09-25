@@ -270,6 +270,9 @@ function choisir(selecteur, valeur) {
 
 const cliquerSur = (selecteur) => `document.querySelector(${JSON.stringify(selecteur)}).click()`;
 
+/** Commentaire de la correction (EF7) : distinct du premier, pour être traçable. */
+const COMMENTAIRE_CORRIGE = "Travail clair, conclusion réécrite après relecture.";
+
 // ---------------------------------------------------------------------------
 // Parcours
 // ---------------------------------------------------------------------------
@@ -451,7 +454,7 @@ async function deroulerLeParcours(port) {
   verifier("EF5 : l'exercice passe en EN_ATTENTE_RELECTURE, un relecteur est assigné",
     /statut : EN_ATTENTE_RELECTURE/.test(detailDepot), detailDepot);
 
-  // ---------- 4. Relecteur : rendre sa note (EF6) ----------
+  // ---------- 4. Relecteur : rendre sa note (EF6) puis la corriger (EF7) ----------
   console.log("\n4. Relecteur (/relecteur)");
   await cdp.envoyer("Page.navigate", { url: url("/") });
   await cdp.attendre(`document.querySelector('a[href="/relecteur"]') !== null`, "accueil affiché");
@@ -503,7 +506,47 @@ async function deroulerLeParcours(port) {
   verifier("La mission quitte la liste des relectures à rendre",
     await cdp.evaluer(`document.body.innerText.includes("Aucun exercice ne vous est confié")`));
 
-  // 4c. L'étudiant relu consulte sa note, sans connaître son relecteur (EF8).
+  // 4c. EF7 : le relecteur corrige la note qu'il vient de rendre (RG8).
+  verifier("EF7 : la correction est proposée pour la note qui vient d'être rendue",
+    await cdp.evaluer(
+      `[...document.querySelectorAll("button")].some((b) => b.textContent.includes("Corriger ma note"))`,
+    ));
+
+  await cdp.evaluer(
+    `[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Corriger ma note")).click()`,
+  );
+  await cdp.attendre(`document.querySelector("#noteCorrigee") !== null`,
+    "formulaire de correction affiché", 8000);
+  // La correction repart de ce que le serveur a enregistré : le relecteur corrige
+  // sa note, il ne la ressaisit pas de mémoire.
+  verifier("EF7 : la correction repart de la note rendue, sans ressaisie",
+    (await cdp.evaluer(`document.querySelector("#noteCorrigee").value`)) === "15",
+    await cdp.evaluer(`"note=" + document.querySelector("#noteCorrigee").value`));
+
+  await cdp.evaluer(`${REMPLIR}; remplir("#noteCorrigee", "18")`);
+  await cdp.evaluer(
+    `${REMPLIR}; remplir("#commentaireCorrige", ${JSON.stringify(COMMENTAIRE_CORRIGE)})`,
+  );
+  // Le formulaire de correction est imbriqué dans sa section : il n'est pas le
+  // 3e « form » de ses propres frères, on le cible donc par son libellé.
+  await cdp.evaluer(
+    `[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Enregistrer la correction")).click()`,
+  );
+
+  let correctionOk = true;
+  try {
+    await cdp.attendre(`document.body.innerText.includes("Correction enregistrée")`,
+      "confirmation de correction", 8000);
+  } catch {
+    correctionOk = false;
+  }
+  verifier("EF7/RG8 : la note corrigée remplace la note rendue",
+    correctionOk && (await cdp.evaluer(`document.body.innerText.includes("18/20")`)),
+    await cdp.evaluer(
+      `document.body.innerText.match(/Exercice n°\\d+ — note \\d+\\/20 — statut \\w+/)?.[0] ?? document.body.innerText.slice(0, 200)`,
+    ));
+
+  // 4d. L'étudiant relu consulte sa note, sans connaître son relecteur (EF8).
   await cdp.envoyer("Page.navigate", { url: url("/etudiant") });
   await cdp.attendre(`document.querySelector("#promotionId") !== null`, "écran étudiant affiché");
   await attendreHydratation(cdp);
@@ -524,13 +567,16 @@ async function deroulerLeParcours(port) {
   const contenuNotes = await cdp.evaluer(
     `document.querySelector('ul[aria-label="Notes reçues"]')?.innerText.split(String.fromCharCode(10)).join(" ") ?? "(aucune)"`,
   );
-  verifier("L'étudiant relu voit sa note et le commentaire reçus (EF8)",
-    notesVisibles && contenuNotes.includes("15/20") && contenuNotes.includes("RENDUE") && contenuNotes.includes("Travail clair"),
+  // La note affichée est celle de la CORRECTION (EF7) : RG8 se propage jusqu'à
+  // l'étudiant relu, sans qu'une note périmée ne subsiste nulle part.
+  verifier("EF8 : l'étudiant relu voit la note corrigée (RG8) et le commentaire reçus",
+    notesVisibles && contenuNotes.includes("18/20") && contenuNotes.includes("RENDUE")
+      && contenuNotes.includes(COMMENTAIRE_CORRIGE),
     contenuNotes);
   verifier("L'étudiant relu ne connaît pas l'identité de son relecteur (RG6)",
     !contenuNotes.includes(nomRelecteur), `relecteur=${nomRelecteur}`);
 
-  // 4d. Le formateur consulte le tableau de bord de sa promotion (EF9).
+  // 4e. Le formateur consulte le tableau de bord de sa promotion (EF9).
   await cdp.envoyer("Page.navigate", { url: url("/formateur") });
   await cdp.attendre(`document.querySelector("#promotionId") !== null`, "écran formateur affiché");
   await attendreHydratation(cdp);
@@ -558,12 +604,12 @@ async function deroulerLeParcours(port) {
     tableauVisible && entetes.includes("présences") && entetes.includes("moyenne")
       && entetes.includes("relectures en attente"),
     contenuTableau);
-  verifier("EF9 : la note reçue par l'auteur remonte dans la moyenne du tableau",
-    tableauVisible && contenuTableau.includes("15/20"), contenuTableau);
+  verifier("EF9 : la note corrigée remonte dans la moyenne du tableau (RG8)",
+    tableauVisible && contenuTableau.includes("18/20"), contenuTableau);
   verifier("EF9 : un étudiant sans note affiche un tiret, jamais 0 (la moyenne vient du serveur)",
     tableauVisible && contenuTableau.includes("—"), contenuTableau);
 
-  // 4e. Le formateur clôture la session : dépôts et notes sont gelés (EF11, RG14).
+  // 4f. Le formateur clôture la session : dépôts et notes sont gelés (EF11, RG14).
   await cdp.envoyer("Page.navigate", { url: url("/formateur") });
   await cdp.attendre(`document.querySelector('ul[aria-label="Sessions ouvertes"]') !== null`,
     "liste des sessions affichée", 8000);
@@ -608,7 +654,7 @@ async function deroulerLeParcours(port) {
       `(document.querySelector('[role="alert"]')?.innerText ?? "(aucun)").split(String.fromCharCode(10)).join(" ")`,
     ));
 
-  // 4f. EF11 (suite) : après clôture, la notation est refusée elle aussi (RG14).
+  // 4g. EF11 (suite) : après clôture, la notation est refusée elle aussi (RG14).
   // Il faut une relecture encore EN_ATTENTE : celle de l'étape 4 a été rendue, et
   // une relecture rendue ne figure plus dans les missions du relecteur. On rejoue
   // donc un cycle complet — session, deux présences, dépôt — puis on clôture.

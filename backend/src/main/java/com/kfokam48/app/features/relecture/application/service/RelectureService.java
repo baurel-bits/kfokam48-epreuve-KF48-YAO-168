@@ -10,13 +10,16 @@ import com.kfokam48.app.features.relecture.application.dto.MissionRelecteurRepon
 import com.kfokam48.app.features.relecture.application.dto.NoteRecueReponse;
 import com.kfokam48.app.features.relecture.application.dto.RelectureRendueReponse;
 import com.kfokam48.app.features.relecture.application.dto.SoumissionRelectureRequete;
+import com.kfokam48.app.features.relecture.domain.entity.CorrectionRelecture;
 import com.kfokam48.app.features.relecture.domain.entity.Relecture;
 import com.kfokam48.app.features.relecture.domain.entity.StatutRelecture;
+import com.kfokam48.app.features.relecture.domain.repository.CorrectionRelectureRepository;
 import com.kfokam48.app.features.relecture.domain.repository.RelectureRepository;
 import com.kfokam48.app.features.session.domain.entity.Session;
 import com.kfokam48.app.features.session.domain.repository.SessionRepository;
 import java.math.BigDecimal;
 import java.security.SecureRandom;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -38,6 +41,10 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><strong>RG4</strong> : l'auteur est écarté du pool avant le tirage ; la base
  * le re-vérifie via {@code ck_relecture_pas_auto_relecture}.
+ *
+ * <p>EF6 (rendre une note), EF7 (la corriger avant clôture, RG8) et EF8 (la
+ * relire depuis le côté étudiant) partagent la même garantie de confidentialité :
+ * aucune réponse ne porte l'identité du relecteur (RG6).
  */
 @Service
 public class RelectureService implements AssignateurRelecteur {
@@ -47,16 +54,19 @@ public class RelectureService implements AssignateurRelecteur {
     private static final BigDecimal NOTE_MAXIMALE = new BigDecimal("20");
 
     private final RelectureRepository relectureRepository;
+    private final CorrectionRelectureRepository correctionRelectureRepository;
     private final PresenceRepository presenceRepository;
     private final ExerciceRepository exerciceRepository;
     private final SessionRepository sessionRepository;
     private final SecureRandom aleatoire = new SecureRandom();
 
     public RelectureService(RelectureRepository relectureRepository,
+                            CorrectionRelectureRepository correctionRelectureRepository,
                             PresenceRepository presenceRepository,
                             ExerciceRepository exerciceRepository,
                             SessionRepository sessionRepository) {
         this.relectureRepository = relectureRepository;
+        this.correctionRelectureRepository = correctionRelectureRepository;
         this.presenceRepository = presenceRepository;
         this.exerciceRepository = exerciceRepository;
         this.sessionRepository = sessionRepository;
@@ -176,6 +186,70 @@ public class RelectureService implements AssignateurRelecteur {
         relectureRepository.save(relecture);
 
         exercice.marquerRelu();
+
+        return new RelectureRendueReponse(relecture.getId(), exercice.getId(), relecture.getNote(),
+                relecture.getCommentaire(), relecture.getStatut());
+    }
+
+    /**
+     * Corrige une note déjà rendue (EF7), tant que la session n'est pas clôturée
+     * (RG8).
+     *
+     * <p>Ordre des contrôles, aligné sur celui de {@link #rendre} :
+     * <ol>
+     *   <li>forme de la note → {@code 400 NOTE_INVALIDE} (RG7) ;</li>
+     *   <li>relecture inconnue → {@code 404} ;</li>
+     *   <li>auto-relecture → {@code 403 AUTO_RELECTURE} (RG4, garde-fou) ;</li>
+     *   <li>session clôturée → {@code 409 SESSION_CLOTUREE} (RG8), contrôlé avant
+     *       l'état de la relecture : une session clôturée interdit toute notation,
+     *       correction comprise ;</li>
+     *   <li>relecture jamais rendue → {@code 409 RELECTURE_NON_RENDUE} : il n'y a
+     *       rien à corriger, l'EF6 est l'opération qui convient.</li>
+     * </ol>
+     *
+     * <p><strong>RG8</strong> : la note remplacée est archivée dans
+     * {@code correction_relecture} <em>avant</em> d'être remplacée, dans la même
+     * transaction — une correction qui aurait échoué après l'archivage ne laisse
+     * donc rien derrière elle. La note courante reste celle de {@code relecture},
+     * et l'exercice reste {@code RELU} (D4) : seul le contenu de la note change.
+     */
+    @Transactional
+    public RelectureRendueReponse corriger(Long relectureId, SoumissionRelectureRequete requete) {
+        int note = validerNote(requete.note());
+
+        Relecture relecture = relectureRepository.findById(relectureId)
+                .orElseThrow(() -> new ExceptionMetier(CodeErreur.RELECTURE_INCONNUE, HttpStatus.NOT_FOUND,
+                        "La relecture %d est introuvable.".formatted(relectureId)));
+
+        // Même garde-fou que pour le rendu (RG4) : inatteignable par l'API, mais
+        // une correction ne doit pas davantage porter sur sa propre copie.
+        if (relecture.getAuteurId().equals(relecture.getRelecteurId())) {
+            throw new ExceptionMetier(CodeErreur.AUTO_RELECTURE, HttpStatus.FORBIDDEN,
+                    "Un étudiant ne peut pas corriger une relecture de son propre exercice.");
+        }
+
+        Exercice exercice = exerciceRepository.findById(relecture.getExerciceId())
+                .orElseThrow(() -> new ExceptionMetier(CodeErreur.EXERCICE_INCONNU, HttpStatus.NOT_FOUND,
+                        "L'exercice %d est introuvable.".formatted(relecture.getExerciceId())));
+
+        Session session = sessionRepository.findById(exercice.getSessionId())
+                .orElseThrow(() -> new ExceptionMetier(CodeErreur.SESSION_INCONNUE, HttpStatus.NOT_FOUND,
+                        "La session %d est inconnue.".formatted(exercice.getSessionId())));
+        if (session.isCloturee()) {
+            throw new ExceptionMetier(CodeErreur.SESSION_CLOTUREE, HttpStatus.CONFLICT,
+                    "La session est clôturée : plus aucune note ne peut être créée ni corrigée.");
+        }
+
+        if (relecture.getStatut() != StatutRelecture.RENDUE) {
+            throw new ExceptionMetier(CodeErreur.RELECTURE_NON_RENDUE, HttpStatus.CONFLICT,
+                    "Cette relecture n'a pas encore été rendue : rendez d'abord la note.");
+        }
+
+        correctionRelectureRepository.save(new CorrectionRelecture(relecture.getId(),
+                relecture.getNote(), relecture.getCommentaire(), LocalDateTime.now()));
+
+        relecture.corriger(note, requete.commentaire());
+        relectureRepository.save(relecture);
 
         return new RelectureRendueReponse(relecture.getId(), exercice.getId(), relecture.getNote(),
                 relecture.getCommentaire(), relecture.getStatut());

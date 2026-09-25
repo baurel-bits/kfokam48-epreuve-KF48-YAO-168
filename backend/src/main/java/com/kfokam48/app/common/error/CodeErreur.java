@@ -64,6 +64,15 @@ public enum CodeErreur {
     /** EF6 — une note a déjà été rendue ; sa correction relève de l'EF7 (contrat : {@code 409}). */
     RELECTURE_DEJA_RENDUE,
 
+    /**
+     * EF7 — la relecture visée n'a pas encore été rendue : il n'y a rien à
+     * corriger, c'est l'EF6 qui s'applique ({@code POST /api/relectures/{id}}).
+     * Cas non prévu par le contrat, qui ne déclare que
+     * {@code 409 SESSION_CLOTUREE} sur cette opération : {@code 409} également,
+     * symétrique de {@code RELECTURE_DEJA_RENDUE} de l'EF6.
+     */
+    RELECTURE_NON_RENDUE,
+
     /** Requête HTTP refusée par Spring MVC (404, 405, ...). */
     DEMANDE_INVALIDE,
 

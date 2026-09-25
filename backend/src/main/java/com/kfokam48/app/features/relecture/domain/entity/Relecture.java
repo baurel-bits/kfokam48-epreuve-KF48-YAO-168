@@ -79,6 +79,19 @@ public class Relecture {
         this.renduAt = LocalDateTime.now();
     }
 
+    /**
+     * EF7 (RG8) : le relecteur remplace sa note et son commentaire.
+     *
+     * <p>Le statut reste {@code RENDUE} et {@code renduAt} n'est pas réécrit : une
+     * correction ne rejoue pas le rendu, elle en remplace le contenu. Ni l'un ni
+     * l'autre ne sont donc des paramètres — c'est {@code correction_relecture} qui
+     * date le changement, et la note remplacée y est archivée avant l'appel.
+     */
+    public void corriger(int note, String commentaire) {
+        this.note = note;
+        this.commentaire = commentaire;
+    }
+
     public Long getId() {
         return id;
     }
