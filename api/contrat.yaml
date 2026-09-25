@@ -13,6 +13,11 @@ servers:
 
 paths:
 
+  # ==================================================================
+  # LES 5 OPÉRATIONS IMPOSÉES — REPRODUITES À L'IDENTIQUE
+  # (chemins, verbes, codes de statut et format d'erreur inchangés)
+  # ==================================================================
+
   /api/sessions:
     post:
       summary: Le formateur ouvre une session et obtient un code de présence
@@ -70,6 +75,8 @@ paths:
         "400": { $ref: "#/components/responses/Erreur" }   # CODE_INCONNU
         "409": { $ref: "#/components/responses/Erreur" }   # DEJA_PRESENT
         "410": { $ref: "#/components/responses/Erreur" }   # CODE_EXPIRE
+        # RG3 — ajout (ne remplace aucun code imposé) : blocage de 2 min après 5 échecs
+        "429": { $ref: "#/components/responses/Erreur" }   # TROP_DE_TENTATIVES
 
   /api/exercices:
     post:
@@ -150,6 +157,252 @@ paths:
                     moyenne: { type: number, nullable: true }
                     relecturesEnAttente: { type: integer }
         "404": { $ref: "#/components/responses/Erreur" }   # PROMOTION_INCONNUE
+
+  # ==================================================================
+  # OPÉRATIONS ADDITIONNELLES — rattachées à un EF du cahier des
+  # charges, ou à un prérequis explicite du sujet (Q1 : l'étudiant est
+  # choisi dans une liste). Aucune ne modifie une opération imposée
+  # ci-dessus : la correction de note utilise un sous-chemin distinct
+  # afin que POST /api/relectures/{id} reste strictement identique.
+  # ==================================================================
+
+  # ---- EF4 : remplacer le lien de son exercice (tant que RG11/RG14 le permettent)
+  /api/exercices/{id}/lien:
+    put:
+      summary: EF4 — Un étudiant remplace le lien de son exercice
+      description: |
+        Autorisé tant qu'aucune relecture n'est rendue (RG11) et que la
+        session n'est pas clôturée (RG14).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lien]
+              properties:
+                lien: { type: string, format: uri }
+      responses:
+        "200":
+          description: Lien remplacé
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, statut]
+                properties:
+                  id: { type: integer, format: int64 }
+                  statut: { type: string }
+        "400": { $ref: "#/components/responses/Erreur" }   # LIEN_INVALIDE
+        "404": { $ref: "#/components/responses/Erreur" }   # EXERCICE_INCONNU
+        "409": { $ref: "#/components/responses/Erreur" }   # RELECTURE_COMMENCEE / SESSION_CLOTUREE
+
+  # ---- EF7 : corriger une note déjà rendue, avant clôture (RG8)
+  /api/relectures/{id}/correction:
+    put:
+      summary: EF7 — Un relecteur corrige sa note et son commentaire
+      description: |
+        Autorisé uniquement tant que la session n'est pas clôturée (RG8, Q10).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [note, commentaire]
+              properties:
+                note: { type: integer, minimum: 0, maximum: 20 }
+                commentaire: { type: string }
+      responses:
+        "200": { description: Correction enregistrée }
+        "400": { $ref: "#/components/responses/Erreur" }   # NOTE_INVALIDE
+        "403": { $ref: "#/components/responses/Erreur" }   # AUTO_RELECTURE
+        "404": { $ref: "#/components/responses/Erreur" }   # RELECTURE_INCONNUE
+        "409": { $ref: "#/components/responses/Erreur" }   # SESSION_CLOTUREE
+
+  # ---- EF11 : clôturer une session (gèle dépôts et notes, RG14)
+  /api/sessions/{id}/cloture:
+    post:
+      summary: EF11 — Le formateur clôture une session
+      description: |
+        Possible même si des relectures restent en attente (RG14) ; gèle
+        ensuite tout dépôt et toute notation sur cette session.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Session clôturée
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, cloturee]
+                properties:
+                  id: { type: integer, format: int64 }
+                  cloturee: { type: boolean }
+        "404": { $ref: "#/components/responses/Erreur" }   # SESSION_INCONNUE
+
+  # ---- EF6 : le relecteur consulte les relectures qui lui sont assignées
+  /api/relecteurs/{etudiantId}/relectures-en-attente:
+    get:
+      summary: EF6 — Un relecteur liste les relectures qui lui sont assignées et non rendues
+      parameters:
+        - name: etudiantId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Relectures en attente du relecteur
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [relectureId, exerciceId, sessionId, lien, statut]
+                  properties:
+                    relectureId: { type: integer, format: int64 }
+                    exerciceId: { type: integer, format: int64 }
+                    sessionId: { type: integer, format: int64 }
+                    lien: { type: string, format: uri }
+                    statut: { type: string, enum: [EN_ATTENTE, RENDUE] }
+
+  # ---- EF8 : l'étudiant relu consulte sa note (jamais l'identité du relecteur — RG6)
+  /api/etudiants/{etudiantId}/relectures-recues:
+    get:
+      summary: EF8 — Un étudiant consulte la note et le commentaire reçus
+      description: Ne renvoie jamais l'identité du relecteur (RG6).
+      parameters:
+        - name: etudiantId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Notes reçues par l'étudiant
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [exerciceId, statut, note, commentaire]
+                  properties:
+                    exerciceId: { type: integer, format: int64 }
+                    statut: { type: string }
+                    note: { type: integer, nullable: true, minimum: 0, maximum: 20 }
+                    commentaire: { type: string, nullable: true }
+
+  # ---- EF10 : le formateur ajoute une présence manuellement (RG12)
+  /api/presences/manuelles:
+    post:
+      summary: EF10 — Le formateur ajoute manuellement une présence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionId, etudiantId]
+              properties:
+                sessionId: { type: integer, format: int64 }
+                etudiantId: { type: integer, format: int64 }
+      responses:
+        "201":
+          description: Présence ajoutée
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, sessionId, etudiantId, source]
+                properties:
+                  id: { type: integer, format: int64 }
+                  sessionId: { type: integer, format: int64 }
+                  etudiantId: { type: integer, format: int64 }
+                  source: { type: string, enum: [ETUDIANT, FORMATEUR] }
+        "404": { $ref: "#/components/responses/Erreur" }   # SESSION_INCONNUE / ETUDIANT_INCONNU
+        "409": { $ref: "#/components/responses/Erreur" }   # DEJA_PRESENT
+
+  # ---- Prérequis Q1 (EF2/EF3/EF10) : l'étudiant est choisi dans une liste
+  /api/promotions/{promotionId}/etudiants:
+    get:
+      summary: Q1 — Consulter la liste des étudiants d'une promotion
+      description: |
+        Le sujet exclut l'authentification par mot de passe (Q1) : l'étudiant
+        est choisi dans une liste. Cette opération fournit les `etudiantId`
+        attendus par POST /api/presences, POST /api/exercices et
+        POST /api/presences/manuelles.
+      parameters:
+        - name: promotionId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Étudiants de la promotion
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [id, prenom, nom]
+                  properties:
+                    id: { type: integer, format: int64 }
+                    prenom: { type: string }
+                    nom: { type: string }
+        "404": { $ref: "#/components/responses/Erreur" }   # PROMOTION_INCONNUE
+
+  # ---- EF5/EF6 : le relecteur assigné consulte sa mission (RG6)
+  /api/exercices/{exerciceId}/relecteur:
+    get:
+      summary: EF5/EF6 — Le relecteur assigné consulte l'exercice qui lui est confié
+      description: |
+        Réservé au relecteur assigné (RG6 : l'étudiant relu ne doit jamais
+        connaître l'identité de son relecteur). L'appelant fournit son
+        `relecteurId` ; toute autre valeur renvoie 403.
+        ATTENTION : le sujet excluant l'authentification (Q1), ce contrôle
+        repose sur la comparaison avec `relecture.relecteur_id` et ne
+        constitue pas une véritable autorisation d'accès.
+      parameters:
+        - name: exerciceId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: relecteurId
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Mission du relecteur assigné
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [relectureId, exerciceId, sessionId, lien, statut]
+                properties:
+                  relectureId: { type: integer, format: int64 }
+                  exerciceId: { type: integer, format: int64 }
+                  sessionId: { type: integer, format: int64 }
+                  lien: { type: string, format: uri }
+                  statut: { type: string, enum: [EN_ATTENTE, RENDUE] }
+        "403": { $ref: "#/components/responses/Erreur" }   # APPELANT_NON_AUTORISE (RG6)
+        "404": { $ref: "#/components/responses/Erreur" }   # RELECTURE_INCONNUE
 
 components:
   schemas:

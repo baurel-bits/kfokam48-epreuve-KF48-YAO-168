@@ -121,3 +121,20 @@ Imposées par le sujet, non négociables :
 5. **Soumission** : commit final, hash relevé, `SOUMISSION.md` déposé avant 18h00
 
 **Definition of Done** : une issue est terminée quand son code est fusionné sur `main` via une PR qui la ferme, que ses critères d'acceptation sont vérifiés manuellement ou par un test, et que la documentation impactée (contrat API, diagrammes) est à jour.
+
+## 11. Trous identifiés après revue du contrat d'API (décisions)
+
+Ces trois points n'étaient pas explicitement tranchés par le sujet ; ils le sont ici
+et répercutés dans `api/contrat.yaml`.
+
+| Point | Constat | Décision retenue |
+|---|---|---|
+| **EF5** — assignation automatique d'un relecteur | Le contrat n'impose aucune opération d'assignation : c'est un **effet de bord** du dépôt (`POST /api/exercices`), conformément à RG5/RG13. | Aucune opération d'écriture ajoutée. L'assignation est observable par le relecteur via `GET /api/relecteurs/{etudiantId}/relectures-en-attente` et `GET /api/exercices/{exerciceId}/relecteur`. |
+| **RG3** — blocage après 5 échecs de saisie | Le contrat ne prévoyait **aucun statut ni code** pour une saisie effectuée pendant le blocage de 2 minutes. | **`429 TROP_DE_TENTATIVES`** renvoyé par `POST /api/presences`, contrôlé **avant** la validation du code. Message : « Trop de tentatives : réessayez dans 2 minutes. » Compteur par couple (étudiant, session). Les codes imposés `400 CODE_INCONNU`, `409 DEJA_PRESENT` et `410 CODE_EXPIRE` restent **inchangés** : le `429` est un **ajout**. |
+| **Liste des étudiants d'une promotion** | Q1 exclut l'authentification par mot de passe (l'étudiant est choisi dans une liste) mais **aucun endpoint** ne fournissait cette liste. | Ajout de **`GET /api/promotions/{promotionId}/etudiants`**, prérequis explicite de EF2, EF3 et EF10 (les `etudiantId` doivent venir de quelque part). |
+
+> ⚠️ **Limite de sécurité assumée** : le sujet excluant l'authentification (Q1), la
+> restriction « réservé au relecteur » (RG6) repose uniquement sur la comparaison du
+> `relecteurId` fourni avec `relecture.relecteur_id`. Ce n'est **pas** un véritable
+> contrôle d'accès : cela évite l'affichage accidentel de l'identité du relecteur à
+> l'étudiant relu, mais ne résiste pas à un appel volontairement falsifié.

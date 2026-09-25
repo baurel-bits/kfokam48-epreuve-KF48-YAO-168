@@ -26,7 +26,12 @@ sequenceDiagram
     DB-->>R: ligne session
     R-->>S: Session (ou vide)
 
-    alt Code expiré — RG1 / RG2
+    alt Blocage actif — RG3
+        Note over S: 5 échecs atteints pour ce couple en moins de 2 min
+        S-->>API: throw TropDeTentativesException
+        API-->>F: 429 { "code": "TROP_DE_TENTATIVES", "message": "Trop de tentatives : réessayez dans 2 minutes." }
+        F-->>E: Blocage affiché (2 minutes)
+    else Code expiré — RG1 / RG2
         Note over S: expirationAt < maintenant
         S->>R: incrementerEchec(etudiantId, sessionId)
         Note right of R: RG3 — compteur (étudiant, session)
@@ -56,13 +61,14 @@ sequenceDiagram
 
 | Branche | Statut | `code` | Origine |
 |---|---|---|---|
+| Blocage actif (5 échecs / 2 min) | `429` | `TROP_DE_TENTATIVES` | **RG3** |
 | Cas nominal | `201` | — | **EF2** : `source = ETUDIANT` |
 | Code expiré | `410` | `CODE_EXPIRE` | **RG1** (expiration 15 min) + **RG2** |
 | Déjà présent | `409` | `DEJA_PRESENT` | **RG2** (unicité `(sessionId, etudiantId)`) |
 
 ## Points de vigilance
 
-- **RG3 (blocage)** : le schéma montre l'incrément du compteur d'échecs sur code expiré. Un cas « code inconnu » se traiterait de la même façon (`400 CODE_INCONNU`, présent au contrat mais non demandé ici). ⚠️ Le contrat ne définit **aucun couple `code`/statut HTTP pour une tentative alors que le blocage est actif** : il faudra soit ajouter une erreur (ex. `429 TROP_DE_TENTATIVES`), soit refuser sans le distinguer. C'est un trou à combler avant l'implémentation.
+- **RG3 (blocage) — tranché** : le contrôle du blocage s'effectue **avant** la validation du code et renvoie **`429 TROP_DE_TENTATIVES`**. Le compteur d'échecs (`tentative_saisie`) est incrémenté sur tout code refusé (expiré ou inconnu) ; à 5 échecs, le couple (étudiant, session) est bloqué 2 minutes. Les codes imposés `400`/`409`/`410` restent **inchangés** : le `429` est un **ajout** documenté dans `api/contrat.yaml`.
 - **Priorité des contrôles** : le diagramme évalue l'expiration **avant** l'unicité de présence ; si un code expiré concerne un étudiant déjà présent, le client reçoit `410` (et non `409`).
 - **`{ code, message }`** : ce format imposé est **différent** du `ApiResponse` du socle actuel (`success/message/data/errors`). Le `GlobalExceptionHandler` devra exposer une réponse dédiée pour respecter le contrat.
 - **Style** : le diagramme suit la convention du D3 existant (participants `Étudiant / Frontend / Controller / Service`). L'**Annexe C** n'étant pas fournie dans le contexte, je m'aligne sur ce style — dis-moi si elle impose une autre convention (noms de participants, `Note`, `rect`).

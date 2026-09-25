@@ -62,10 +62,19 @@ classDiagram
         +Long id PK
         +Long exerciceId FK NN UK
         +Long relecteurId FK NN
+        +Long auteurId FK NN
         +Integer note NULL
         +String commentaire NULL
         +StatutRelecture statut NN
         +LocalDateTime renduAt NULL
+    }
+
+    class CorrectionRelecture {
+        +Long id PK
+        +Long relectureId FK NN
+        +Integer ancienneNote NN
+        +String ancienCommentaire NULL
+        +LocalDateTime corrigeAt NN
     }
 
     class TentativeSaisie {
@@ -104,6 +113,8 @@ classDiagram
     Session "1" --> "0..*" Exercice : accueille
     Exercice "1" --> "0..1" Relecture : fait l'objet de
     Etudiant "1" --> "0..*" Relecture : realise comme relecteur
+    Etudiant "1" --> "0..*" Relecture : est auteur (denormalise pour RG4)
+    Relecture "1" --> "0..*" CorrectionRelecture : historise les corrections
     Etudiant "1" --> "0..*" TentativeSaisie : cumule
     Session "1" --> "0..*" TentativeSaisie : limite
 
@@ -121,39 +132,76 @@ classDiagram
 | Promotion → Session | `1 — 0..*` | **EF1** : une session est ouverte pour une promotion donnée (`promotionId` obligatoire dans `POST /api/sessions`). |
 | Etudiant → Presence | `1 — 0..*` | **RG12** : une présence (auto ou manuelle) appartient à un étudiant ; l'unicité `(sessionId, etudiantId)` concrétise le **409 `DEJA_PRESENT`** (**RG2**). |
 | Session → Presence | `1 — 0..*` | **RG1/RG2** : la présence n'existe que rattachée à une session et au code de celle-ci. |
-| Etudiant → Exercice | `1 — 0..*` | **RG11** : un étudiant dépose un exercice par session ; l'unicité `(sessionId, etudiantId)` concrétise le **409 `EXERCICE_DEJA_DEPOSE`**. |
+| Etudiant → Exercice | `1 — 0..*` | **RG11** : un exercice par étudiant et par session ; l'unicité `(sessionId, etudiantId)` concrétise le **409 `EXERCICE_DEJA_DEPOSE`**. |
 | Session → Exercice | `1 — 0..*` | **RG10** : le dépôt reste possible jusqu'à la clôture, donc l'exercice est ancré à la session. |
 | Exercice → Relecture | `1 — 0..1` | **RG5** : un exercice a **un seul** relecteur, donc au plus une relecture (`exerciceId` `UNIQUE`). |
-| Etudiant → Relecture | `1 — 0..*` | **RG5 + RG4** : un étudiant peut relire plusieurs exercices, mais jamais le sien (`relecteurId ≠ exercice.etudiantId`). |
-| Etudiant → TentativeSaisie | `1 — 0..*` | **RG3** : le compteur d'échecs de code est tenu pour un étudiant donné. |
+| Etudiant → Relecture (relecteur) | `1 — 0..*` | **RG5** : un étudiant peut relire plusieurs exercices. |
+| **Etudiant → Relecture (auteur)** | `1 — 0..*` | **RG4** : `auteurId` est **dénormalisé** dans `relecture` pour rendre l'interdiction d'auto-relecture vérifiable par contrainte SQL (`CHECK relecteur_id <> auteur_id`). |
+| **Relecture → CorrectionRelecture** | `1 — 0..*` | **RG8** : chaque correction avant clôture est archivée, ce qui **conserve l'historique** au lieu d'écraser la note (la note courante reste sur `relecture`). |
+| Etudiant → TentativeSaisie | `1 — 0..*` | **RG3** : le compteur d'échecs est tenu pour un étudiant donné. |
 | Session → TentativeSaisie | `1 — 0..*` | **RG3** : le blocage est cloisonné par couple `(étudiant, session)`, pas globalement. |
-| Clôture de session | `—` | **RG8/RG14** : la clôture gèle le remplacement de lien (**EF4/EF11**) et la correction de note sans nécessiter de cardinalité supplémentaire. |
+
+## Traçabilité RG1–RG14 → modèle / flux
+
+| Règle | Trace dans le modèle ou le flux |
+|---|---|
+| **RG1** expiration 15 min | `session.expirationAt` (calcul à l'ouverture) |
+| **RG2** code invalide/expiré | `session.code` + erreurs contrat `CODE_INCONNU`/`CODE_EXPIRE`/`DEJA_PRESENT` (D3) |
+| **RG3** 5 échecs / 2 min | `tentative_saisie (session_id, etudiant_id, echecs, bloque_jusqua)` — incrément visible en D3 |
+| **RG4** pas d'auto-relecture | `relecture.auteurId` + `CHECK (relecteur_id <> auteur_id)` |
+| **RG5** un seul relecteur | `relecture.exerciceId UNIQUE` + cardinalité `Exercice 1 — 0..1 Relecture` |
+| **RG6** anonymat du relecteur | **non structurel** : choix de DTO sur `GET /api/etudiants/{id}/relectures-recues` (ne renvoie pas `relecteurId`) |
+| **RG7** note entière 0–20 | `relecture.note` + `CHECK (note BETWEEN 0 AND 20)` + `minimum/maximum` dans le contrat |
+| **RG8** correction avant clôture | `correction_relecture` (historique) + `PUT /api/relectures/{id}/correction` |
+| **RG9** exercice non relu = `en attente` | `relecture.statut = EN_ATTENTE`, exposé par `GET /api/tableau.relecturesEnAttente` |
+| **RG10** dépôt jusqu'à clôture | `exercice.sessionId` + contrôle `session.cloturee` (service) |
+| **RG11** remplacement tant que non relu | `exercice.lien` + `PUT /api/exercices/{id}/lien` |
+| **RG12** présence manuelle distinguable | `presence.source = FORMATEUR` |
+| **RG13** pool recalculé à l'assignation | **non structurel** : règle de service au moment du dépôt ; aucun champ de snapshot |
+| **RG14** clôture gèle dépôts/notes | `session.cloturee` + `POST /api/sessions/{id}/cloture` |
 
 ## Contraintes à porter dans les migrations Flyway
 
 - **Clés primaires** : `BIGINT GENERATED BY DEFAULT AS IDENTITY` sur chaque table.
 - **Clés étrangères** : `REFERENCES … ON DELETE RESTRICT` (on préserve l'historique de suivi).
-- **Unicités composites** (à déclarer en contrainte de table, pas sur une colonne) :
+- **Unicités** (à déclarer en contrainte de table) :
   - `presence UNIQUE (session_id, etudiant_id)` → 409 `DEJA_PRESENT`
   - `exercice UNIQUE (session_id, etudiant_id)` → 409 `EXERCICE_DEJA_DEPOSE`
+  - `exercice UNIQUE (id, etudiant_id)` → **support de la FK composite de RG4**
   - `relecture UNIQUE (exercice_id)` → RG5 (un seul relecteur)
   - `tentative_saisie UNIQUE (session_id, etudiant_id)` → RG3
-- **Colonnes uniques simples** : `promotion.nom`, `etudiant.email`, `session.code`.
+- **Contrainte d'auto-relecture (RG4)** — désormais **exprimable en SQL** :
+  ```sql
+  ALTER TABLE relecture
+    ADD CONSTRAINT fk_relecture_exercice_auteur
+      FOREIGN KEY (exercice_id, auteur_id) REFERENCES exercice (id, etudiant_id),
+    ADD CONSTRAINT ck_relecture_pas_auto_relecture
+      CHECK (relecteur_id <> auteur_id);
+  ```
 - **Contraintes de domaine** :
   - `relecture.note CHECK (note BETWEEN 0 AND 20)` → **RG7** (`NOTE_INVALIDE`)
-  - `statut` / `source` : stocker en `VARCHAR` + `CHECK (… IN (…))` (portable) plutôt qu'en type `ENUM` natif PostgreSQL.
-- **Index** : sur chaque colonne FK, sur `session(code)` (résolution d'un code) et sur `session(promotion_id, cloturee)`.
-- **Règles non exprimables en SQL simple** (à implémenter dans les services) :
-  - **RG4** : auto-relecture interdite → comparaison inter-tables `relecteur_id ≠ exercice.etudiant_id` (contrôle service, éventuellement trigger).
+  - `statut` / `source` : `VARCHAR` + `CHECK (… IN (…))` (portable) plutôt que type `ENUM` PostgreSQL.
+- **Index** : chaque colonne FK, `session(code)`, `session(promotion_id, cloturee)`, `relecture(relecteur_id, statut)`.
+- **Règles restant applicatives** (non exprimables en SQL simple) :
   - **RG14** : gel des dépôts et notes après `session.cloturee = true`.
-  - **RG1** : `expiration_at = ouverture_at + 15 min` (calcul applicatif à l'ouverture).
+  - **RG1** : `expiration_at = ouverture_at + 15 min`.
+  - **RG13** : recalcul du pool des relecteurs à l'instant de l'assignation.
+  - **RG6** : filtrage du `relecteurId` dans le DTO de sortie.
 
 ## Correspondance contrat d'API → modèle
 
-| Endpoint / champ contrat | Table(s) concernée(s) |
-|---|---|
-| `POST /api/sessions` → `code`, `ouvertureAt`, `expirationAt` | `session` |
-| `POST /api/presences` → `sessionId`, `etudiantId`, `source` | `presence` |
-| `POST /api/exercices` → `statut` | `exercice` |
-| `POST /api/relectures/{id}` → `note`, `commentaire` | `relecture` |
-| `GET /api/tableau` → `nom`, `presences`, `exercicesDeposes`, `moyenne`, `relecturesEnAttente` | agrégats `etudiant`, `presence`, `exercice`, `relecture` |
+| Endpoint | EF | Table(s) concernée(s) |
+|---|---|---|
+| `POST /api/sessions` (imposé) | EF1 | `session` |
+| `POST /api/presences` (imposé) | EF2 | `presence` |
+| `POST /api/exercices` (imposé) | EF3 | `exercice` |
+| `POST /api/relectures/{id}` (imposé) | EF6 | `relecture` |
+| `GET /api/tableau` (imposé) | EF9 | agrégats `etudiant`, `presence`, `exercice`, `relecture` |
+| `PUT /api/exercices/{id}/lien` | EF4 | `exercice` |
+| `POST /api/sessions/{id}/cloture` | EF11 | `session` |
+| `PUT /api/relectures/{id}/correction` | EF7 | `relecture`, `correction_relecture` |
+| `GET /api/relecteurs/{etudiantId}/relectures-en-attente` | EF6 | `relecture`, `exercice` |
+| `GET /api/etudiants/{etudiantId}/relectures-recues` | EF8 | `relecture`, `exercice` |
+| `POST /api/presences/manuelles` | EF10 | `presence` |
+
+> **EF5** (assignation automatique d'un relecteur) n'a volontairement **aucun endpoint** : c'est un effet de bord du dépôt d'exercice (`POST /api/exercices`), conformément à RG5/RG13.
